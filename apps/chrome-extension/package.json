@@ -1,6 +1,6 @@
 {
   "name": "@zotero-speechify/chrome-extension",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "private": true,
   "type": "module",
   "dependencies": {
@@ -12,6 +12,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.json --noEmit && vite build",
     "dev": "vite build --watch",
-    "lint:check": "eslint ."
+    "lint:check": "eslint .",
+    "package": "pnpm run build && node scripts/package-extension.mjs"
   }
 }

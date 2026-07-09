@@ -232,6 +232,17 @@ error handling for Speechify and Zotero API helpers. Unit tests should stay on
 pure selection/context/annotation-payload logic. Do not make tests depend on a
 real Speechify account, Zotero account, microphone, or reader page.
 
+## Distribution
+
+Generated output is never committed: `apps/chrome-extension/dist/` and
+`build/` stay untracked. The installable zip is produced only by the
+extension's `package` script, which also enforces release constraints
+(manifest/version consistency, referenced entry files present, and the
+content script containing no import statements). Releases are published as
+GitHub Releases with the zip attached; a Chrome Web Store listing, when one
+exists, is built from the same artifact. Before tagging, run
+`docs/manual-test-checklist.md` against the packaged build.
+
 ## Keys, Audio, And Privacy
 
 The extension holds two user secrets in extension storage: a Speechify API key

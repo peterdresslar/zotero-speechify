@@ -1,17 +1,22 @@
+import { Room, RoomEvent, Track } from "livekit-client";
+
 import {
   describeSpeechifyFailure,
   streamSpeech
 } from "@zotero-speechify/speechify-client";
 
 import {
+  isAgentSessionMessage,
   isAudioControlMessage,
+  isStopAnnotationMessage,
   isStreamSpeechMessage,
   type AudioControlCommand,
   type AudioControlResult,
   type AudioPlaybackState,
+  type OperationResult,
   type StreamSpeechMessage,
   type SynthesizeSpeechResult
-} from "../shared/messages";
+} from "../../shared/messages";
 
 // Offscreen document dedicated to audio playback. It streams synthesis
 // straight into a MediaSource, so audio starts with the first bytes instead
@@ -52,14 +57,220 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (isAgentSessionMessage(message)) {
+    startAgentSession(message.url, message.token)
+      .then(sendResponse)
+      .catch(() => {
+        sendResponse({
+          ok: false,
+          message: "Sorry, I could not join the annotation session."
+        });
+      });
+    return true;
+  }
+
+  if (isStopAnnotationMessage(message)) {
+    endAgentSession()
+      .then(() => {
+        sendResponse({ ok: true, message: "Annotation ended." });
+      })
+      .catch(() => {
+        sendResponse({ ok: true, message: "Annotation ended." });
+      });
+    return true;
+  }
+
   return false;
 });
+
+// --- Voice annotation session (LiveKit) ---
+//
+// The agent's client tool calls arrive as data messages of the shape
+// {type:"tool_request", id, name, arguments}; we reply on the same data
+// channel with {type:"tool_response", id, result|error}. This mirrors the
+// protocol implemented by Speechify's own web widget.
+
+let room: Room | undefined;
+let agentAudioElements: HTMLMediaElement[] = [];
+
+async function startAgentSession(
+  url: string,
+  token: string
+): Promise<OperationResult> {
+  await endAgentSession();
+  releasePlayback();
+
+  const nextRoom = new Room();
+  room = nextRoom;
+
+  nextRoom.on(RoomEvent.DataReceived, (payload: Uint8Array) => {
+    void handleAgentData(nextRoom, payload);
+  });
+
+  nextRoom.on(RoomEvent.TrackSubscribed, (track) => {
+    if (track.kind === Track.Kind.Audio) {
+      const element = track.attach();
+      agentAudioElements.push(element);
+      document.body.append(element);
+    }
+  });
+
+  nextRoom.on(RoomEvent.Disconnected, () => {
+    if (room === nextRoom) {
+      room = undefined;
+      detachAgentAudio();
+      void notifyAnnotationEnded("The annotation session ended.");
+    }
+  });
+
+  try {
+    await nextRoom.connect(url, token);
+  } catch {
+    room = undefined;
+    return {
+      ok: false,
+      message: "Sorry, I could not join the annotation session."
+    };
+  }
+
+  try {
+    await nextRoom.localParticipant.setMicrophoneEnabled(true);
+  } catch {
+    await endAgentSession();
+    return {
+      ok: false,
+      message:
+        "Microphone access is needed — enable it in the extension settings."
+    };
+  }
+
+  return { ok: true, message: "Listening — speak your annotation." };
+}
+
+async function handleAgentData(
+  sessionRoom: Room,
+  payload: Uint8Array
+): Promise<void> {
+  let parsed: unknown;
+
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(payload));
+  } catch {
+    return;
+  }
+
+  if (isRecord(parsed) && typeof parsed.type === "string") {
+    // Message *types* only — transcript content is never logged.
+    console.info("zotero-speechify: agent data message", parsed.type);
+  }
+
+  if (
+    !isRecord(parsed) ||
+    parsed.type !== "tool_request" ||
+    typeof parsed.name !== "string" ||
+    (typeof parsed.id !== "string" && typeof parsed.id !== "number")
+  ) {
+    return;
+  }
+
+  console.info("zotero-speechify: tool_request received", parsed.name);
+  const requestId = parsed.id;
+  const args = isRecord(parsed.arguments) ? parsed.arguments : {};
+
+  if (parsed.name !== "save_annotation") {
+    await publishToolResponse(sessionRoom, {
+      type: "tool_response",
+      id: requestId,
+      error: `no handler registered for tool ${parsed.name}`
+    });
+    return;
+  }
+
+  const verbatimText =
+    typeof args.verbatim_text === "string" ? args.verbatim_text.trim() : "";
+
+  if (verbatimText.length === 0) {
+    await publishToolResponse(sessionRoom, {
+      type: "tool_response",
+      id: requestId,
+      error: "The annotation text was empty."
+    });
+    return;
+  }
+
+  let result: OperationResult;
+
+  try {
+    result = await chrome.runtime.sendMessage({
+      type: "SAVE_ANNOTATION",
+      verbatimText
+    });
+  } catch {
+    result = { ok: false, message: "The extension could not save the note." };
+  }
+
+  console.info(
+    "zotero-speechify: tool_response",
+    result.ok ? "saved" : `error: ${result.message}`
+  );
+  await publishToolResponse(
+    sessionRoom,
+    result.ok
+      ? { type: "tool_response", id: requestId, result: { status: "saved" } }
+      : { type: "tool_response", id: requestId, error: result.message }
+  );
+}
+
+async function publishToolResponse(
+  sessionRoom: Room,
+  message: Record<string, unknown>
+): Promise<void> {
+  try {
+    await sessionRoom.localParticipant.publishData(
+      new TextEncoder().encode(JSON.stringify(message)),
+      { reliable: true }
+    );
+  } catch {
+    // Session already gone; the agent will report the tool timeout.
+  }
+}
+
+async function endAgentSession(): Promise<void> {
+  const current = room;
+  room = undefined;
+  detachAgentAudio();
+
+  if (current !== undefined) {
+    await current.disconnect();
+  }
+}
+
+function detachAgentAudio(): void {
+  for (const element of agentAudioElements) {
+    element.remove();
+  }
+
+  agentAudioElements = [];
+}
+
+async function notifyAnnotationEnded(reason: string): Promise<void> {
+  try {
+    await chrome.runtime.sendMessage({ type: "ANNOTATION_ENDED", reason });
+  } catch {
+    // Service worker unavailable; nothing to notify.
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
 
 async function startStreaming({
   input,
   rate,
   apiKey,
-  voiceId
+  voiceId,
+  textNormalization
 }: StreamSpeechMessage): Promise<SynthesizeSpeechResult> {
   releasePlayback();
 
@@ -68,7 +279,7 @@ async function startStreaming({
 
   try {
     stream = await streamSpeech(
-      { apiKey, voiceId, input },
+      { apiKey, voiceId, input, textNormalization },
       abortController.signal
     );
   } catch (error) {
@@ -96,10 +307,7 @@ async function playFromMediaSource(
   rate: number
 ): Promise<void> {
   const mediaSource = new MediaSource();
-  const element = createAudioElement(
-    URL.createObjectURL(mediaSource),
-    rate
-  );
+  const element = createAudioElement(URL.createObjectURL(mediaSource), rate);
 
   await new Promise<void>((resolve) => {
     mediaSource.addEventListener("sourceopen", () => resolve(), {

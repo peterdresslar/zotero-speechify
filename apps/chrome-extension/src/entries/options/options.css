@@ -124,6 +124,32 @@ input[type="password"]:focus {
   width: 18px;
 }
 
+.section-note {
+  color: #40514c;
+  font-size: 13px;
+  margin: 0;
+}
+
+.mic-row {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  justify-content: space-between;
+}
+
+.mic-status {
+  color: #40514c;
+  font-size: 13px;
+}
+
+.mic-status[data-state="granted"] {
+  color: #1d6d61;
+}
+
+.mic-status[data-state="denied"] {
+  color: #9b3f2f;
+}
+
 .shortcut-row {
   align-items: center;
   border-top: 1px solid rgba(36, 54, 49, 0.1);

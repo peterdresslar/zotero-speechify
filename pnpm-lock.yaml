@@ -44,9 +44,6 @@ importers:
 
   apps/chrome-extension:
     dependencies:
-      '@speechify/api':
-        specifier: ^2.0.0
-        version: 2.0.0
       '@zotero-speechify/agent-config':
         specifier: workspace:*
         version: link:../../packages/agent-config
@@ -70,6 +67,10 @@ importers:
       '@zotero-speechify/agent-config':
         specifier: workspace:*
         version: link:../agent-config
+    devDependencies:
+      '@types/node':
+        specifier: ^24.10.0
+        version: 24.13.3
 
   packages/zotero-api: {}
 
@@ -352,6 +353,9 @@ packages:
 
   '@types/json-schema@7.0.15':
     resolution: {integrity: sha512-5+fP8P8MFNC+AyZCDxrB2pkZFPGzqQWUzpSeuuVLvm8VMcorNYavBqoFcxK8bQz4Qsbn4oUEEem4wDLfcysGHA==}
+
+  '@types/node@24.13.3':
+    resolution: {integrity: sha512-Dh8vAsV36ig5wa9OX4pXvMc9D3Veibfw2wix0CUwYODLD8nkj9UsLjASr49nPg+2eKzxhBV+v7L8pXvT4e639Q==}
 
   '@types/node@26.1.1':
     resolution: {integrity: sha512-nxAkRSVkN1Y0JC1W8ky/fTfkGsMmcrRsbx+3XoZE+rMOX71kLYTV7fLXpqud1GpbpP5TuffXFqfX7fH2GgZREw==}
@@ -1021,6 +1025,9 @@ packages:
     engines: {node: '>=14.17'}
     hasBin: true
 
+  undici-types@7.18.2:
+    resolution: {integrity: sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w==}
+
   undici-types@8.3.0:
     resolution: {integrity: sha512-j375ScV60dom+YkPFIfTLcOiPxkN/buHz5GobjLhixFuANaNs3C9l4GmrWqejgXWJ7BbJcFYpTEUkS1Ge8bpZQ==}
 
@@ -1373,6 +1380,10 @@ snapshots:
   '@types/har-format@1.2.16': {}
 
   '@types/json-schema@7.0.15': {}
+
+  '@types/node@24.13.3':
+    dependencies:
+      undici-types: 7.18.2
 
   '@types/node@26.1.1':
     dependencies:
@@ -2024,6 +2035,8 @@ snapshots:
       - supports-color
 
   typescript@6.0.3: {}
+
+  undici-types@7.18.2: {}
 
   undici-types@8.3.0: {}
 

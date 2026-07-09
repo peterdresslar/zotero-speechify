@@ -116,10 +116,10 @@ function getSetupState(settings: ExtensionSettings): SetupState {
   const missingSay = missingLabels([
     ["Speechify key", settings.speechifyApiKey]
   ]);
+  // The agent id is auto-provisioned by the service worker on first use.
   const missingAnnotate = missingLabels([
     ["Speechify key", settings.speechifyApiKey],
-    ["Zotero key", settings.zoteroApiKey],
-    ["Agent ID", settings.speechifyAgentId]
+    ["Zotero key", settings.zoteroApiKey]
   ]);
 
   return {
@@ -266,12 +266,7 @@ interface SynthesizeSpeechResult {
 }
 
 type AudioControlCommand =
-  | "pause"
-  | "resume"
-  | "stop"
-  | "restart"
-  | "status"
-  | "set-rate";
+  "pause" | "resume" | "stop" | "restart" | "status" | "set-rate";
 
 type AudioPlaybackState = "playing" | "paused" | "stopped" | "expired";
 
@@ -357,7 +352,11 @@ function setTransportLoading(): void {
   transport.hidden = false;
   transport.dataset.playback = "loading";
 
-  for (const selector of ["[data-restart]", "[data-play-pause]", "[data-stop]"]) {
+  for (const selector of [
+    "[data-restart]",
+    "[data-play-pause]",
+    "[data-stop]"
+  ]) {
     const button = requiredButton(shadow, selector);
     button.innerHTML = icons.lock;
     button.title = "Loading voice…";
@@ -524,9 +523,7 @@ function formatRate(rate: number): string {
 
 function formatSelectionPreview(selectedText: string): string {
   const preview =
-    selectedText.length > 100
-      ? `${selectedText.slice(0, 100)}…`
-      : selectedText;
+    selectedText.length > 100 ? `${selectedText.slice(0, 100)}…` : selectedText;
 
   return `Selected (${String(selectedText.length)} chars): “${preview}”`;
 }
@@ -649,9 +646,40 @@ function bindControl(shadow: ShadowRoot): void {
 
     void cyclePlaybackRate();
   });
+
+  requiredButton(shadow, "[data-end-annotation]").addEventListener(
+    "click",
+    () => {
+      if (!guardExtensionAlive()) {
+        return;
+      }
+
+      void stopAnnotation();
+    }
+  );
 }
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (isAnnotationEndedMessage(message)) {
+    annotationActive = false;
+    setAnnotateActive(false);
+    setAnnotationDeck("hidden");
+    showToast(message.reason, "ready");
+    sendResponse({ ok: true });
+    return false;
+  }
+
+  if (isAnnotationSavedMessage(message)) {
+    showToast("Annotation saved.", "ready");
+
+    if (message.highlight !== undefined) {
+      drawHighlightEcho(message.highlight.pageIndex, message.highlight.rects);
+    }
+
+    sendResponse({ ok: true });
+    return false;
+  }
+
   if (!isRunReaderActionMessage(message)) {
     return false;
   }
@@ -662,6 +690,82 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
   return true;
 });
+
+function isAnnotationEndedMessage(
+  message: unknown
+): message is { type: "ANNOTATION_ENDED"; reason: string } {
+  return (
+    isObject(message) &&
+    message.type === "ANNOTATION_ENDED" &&
+    typeof message.reason === "string"
+  );
+}
+
+function isAnnotationSavedMessage(message: unknown): message is {
+  type: "ANNOTATION_SAVED";
+  highlight?: { pageIndex: number; rects: number[][] };
+} {
+  return isObject(message) && message.type === "ANNOTATION_SAVED";
+}
+
+// The web reader skips item refetches while in reader view, so the real
+// annotation only renders after a reload. This paints an ephemeral overlay
+// from the saved PDF-space rects so the highlight appears immediately; the
+// reader's own rendering takes over on the next load. Best effort — any
+// failure just means no echo.
+function drawHighlightEcho(pageIndex: number, rects: number[][]): void {
+  for (const doc of collectSameOriginDocuments(document)) {
+    const page = doc.querySelector<HTMLElement>(
+      `.page[data-page-number="${String(pageIndex + 1)}"]`
+    );
+
+    if (page === null) {
+      continue;
+    }
+
+    const canvas = page.querySelector("canvas");
+
+    if (canvas === null) {
+      continue;
+    }
+
+    const scale = resolveScaleFactor(page);
+
+    if (scale === undefined) {
+      return;
+    }
+
+    const pageHeightPts = canvas.getBoundingClientRect().height / scale;
+
+    for (const rect of rects) {
+      const [x1, y1, x2, y2] = rect;
+
+      if (
+        x1 === undefined ||
+        y1 === undefined ||
+        x2 === undefined ||
+        y2 === undefined
+      ) {
+        continue;
+      }
+
+      const echo = doc.createElement("div");
+      echo.className = "zotero-speechify-highlight-echo";
+      echo.style.position = "absolute";
+      echo.style.left = `${String(canvas.offsetLeft + x1 * scale)}px`;
+      echo.style.top = `${String(canvas.offsetTop + (pageHeightPts - y2) * scale)}px`;
+      echo.style.width = `${String((x2 - x1) * scale)}px`;
+      echo.style.height = `${String((y2 - y1) * scale)}px`;
+      echo.style.background = "rgba(255, 212, 0, 0.45)";
+      echo.style.mixBlendMode = "multiply";
+      echo.style.pointerEvents = "none";
+      echo.style.borderRadius = "1px";
+      page.append(echo);
+    }
+
+    return;
+  }
+}
 
 async function runReaderAction(
   action: ReaderAction
@@ -687,6 +791,10 @@ async function runReaderAction(
     return startSaying(context.selectedText);
   }
 
+  if (annotationActive) {
+    return stopAnnotation();
+  }
+
   const target = chooseAnnotationTarget(context);
 
   if (target.kind === "no-reader") {
@@ -702,13 +810,271 @@ async function runReaderAction(
     );
   }
 
-  if (target.kind === "highlight") {
-    return showReady("Voice annotation will attach to the selected text.");
+  return startAnnotating(target, context);
+}
+
+let annotationActive = false;
+
+async function startAnnotating(
+  target: AnnotationTarget,
+  context: ZoteroReaderContext
+): Promise<ReaderActionResult> {
+  const parsed = parseReaderPath(window.location.pathname);
+
+  if (parsed.parentItemKey === undefined) {
+    return showSpokenError(
+      "no-reader",
+      "Sorry, I can't tell which item this reader belongs to."
+    );
   }
 
-  const page =
-    target.pageLabel === undefined ? "this page" : `page ${target.pageLabel}`;
-  return showReady(`Voice annotation will attach to ${page}.`);
+  showToast("Starting voice annotation…", "ready");
+  setAnnotationDeck("connecting");
+
+  let result: OperationResult | undefined;
+
+  try {
+    result = await chrome.runtime.sendMessage({
+      type: "START_ANNOTATION",
+      target: {
+        parentItemKey: parsed.parentItemKey,
+        groupId: parsed.groupId,
+        attachmentKey: parsed.attachmentKey,
+        selectedText:
+          target.kind === "highlight" ? target.selectedText : undefined,
+        pageLabel: context.pageLabel,
+        highlight:
+          target.kind === "highlight" ? captureHighlightPosition() : undefined
+      }
+    });
+  } catch {
+    if (!isExtensionAlive()) {
+      teardownReaderControl();
+      return {
+        ok: false,
+        status: "unavailable",
+        message: "The extension was updated — refresh this page."
+      };
+    }
+
+    result = {
+      ok: false,
+      message: "Sorry, I could not start the annotation session."
+    };
+  }
+
+  // An undefined response means no handler answered — surface it rather
+  // than failing silently.
+  result ??= {
+    ok: false,
+    message: "The extension did not respond — try reloading it."
+  };
+
+  if (!result.ok) {
+    setAnnotationDeck("hidden");
+    showToast(result.message, "warning");
+    speakStatus(result.message);
+    return { ok: false, status: "error", message: result.message };
+  }
+
+  annotationActive = true;
+  setAnnotateActive(true);
+  setAnnotationDeck("live");
+  showToast(result.message, "ready");
+  return { ok: true, status: "ready", message: result.message };
+}
+
+async function stopAnnotation(): Promise<ReaderActionResult> {
+  annotationActive = false;
+  setAnnotateActive(false);
+  setAnnotationDeck("hidden");
+
+  try {
+    await chrome.runtime.sendMessage({ type: "STOP_ANNOTATION" });
+  } catch {
+    // Session already gone.
+  }
+
+  const message = "Annotation ended.";
+  showToast(message, "ready");
+  return { ok: true, status: "ready", message };
+}
+
+function setAnnotateActive(active: boolean): void {
+  const shadow = getControlShadow();
+
+  if (shadow === undefined) {
+    return;
+  }
+
+  const annotateButton = requiredButton(shadow, "[data-annotate]");
+  annotateButton.dataset.active = String(active);
+  annotateButton.title = active ? "End annotation" : "Annotate";
+}
+
+function setAnnotationDeck(state: "connecting" | "live" | "hidden"): void {
+  const shadow = getControlShadow();
+
+  if (shadow === undefined) {
+    return;
+  }
+
+  const deck = requiredHtmlElement(shadow, "[data-annotate-deck]");
+
+  if (state === "hidden") {
+    deck.hidden = true;
+    delete deck.dataset.state;
+    return;
+  }
+
+  deck.hidden = false;
+  deck.dataset.state = state;
+  requiredHtmlElement(shadow, "[data-annotate-label]").textContent =
+    state === "live" ? "Annotating" : "Connecting…";
+}
+
+interface OperationResult {
+  ok: boolean;
+  message: string;
+}
+
+// Reader URLs: /<user>/(collections/<key>/)?items/<itemKey>/
+// (attachment/<key>/)?reader, or /groups/<id>/... for group libraries. When
+// there is no attachment segment, the item itself is the attachment.
+function parseReaderPath(pathname: string): {
+  groupId?: string;
+  parentItemKey?: string;
+  attachmentKey?: string;
+} {
+  const groupMatch = /^\/groups\/(?<groupId>\d+)\//u.exec(pathname);
+  const itemMatch = /\/items\/(?<itemKey>[A-Z0-9]{8})(?:\/|$)/u.exec(pathname);
+  const attachmentMatch =
+    /\/attachment\/(?<attachmentKey>[A-Z0-9]{8})(?:\/|$)/u.exec(pathname);
+
+  return {
+    groupId: groupMatch?.groups?.groupId,
+    parentItemKey: itemMatch?.groups?.itemKey,
+    attachmentKey:
+      attachmentMatch?.groups?.attachmentKey ?? itemMatch?.groups?.itemKey
+  };
+}
+
+interface HighlightCapture {
+  pageIndex: number;
+  rects: number[][];
+  sortIndex: string;
+}
+
+// Converts the reader selection into Zotero's PDF-space annotation position:
+// points, origin at the page's bottom-left. The DOM gives CSS pixels; the
+// bridge is pdf.js's --scale-factor custom property and the rendered page
+// canvas geometry. Returns undefined whenever anything cannot be resolved —
+// callers then fall back to a child note, so the annotation is never lost.
+function captureHighlightPosition(): HighlightCapture | undefined {
+  const selectionRange = findSelectionRange(
+    collectSameOriginDocuments(document)
+  );
+
+  if (selectionRange === undefined) {
+    return undefined;
+  }
+
+  const anchor = selectionRange.commonAncestorContainer;
+  const anchorElement =
+    anchor instanceof Element ? anchor : anchor.parentElement;
+  const page = anchorElement?.closest<HTMLElement>(".page[data-page-number]");
+
+  if (page === null || page === undefined) {
+    return undefined;
+  }
+
+  const pageNumber = Number(page.dataset.pageNumber);
+  const canvas = page.querySelector("canvas");
+
+  if (!Number.isFinite(pageNumber) || pageNumber < 1 || canvas === null) {
+    return undefined;
+  }
+
+  const canvasRect = canvas.getBoundingClientRect();
+  const scale = resolveScaleFactor(page);
+
+  if (scale === undefined || canvasRect.width === 0) {
+    return undefined;
+  }
+
+  const pageWidthPts = canvasRect.width / scale;
+  const pageHeightPts = canvasRect.height / scale;
+  const rects: number[][] = [];
+
+  for (const rect of Array.from(selectionRange.getClientRects())) {
+    if (rect.width < 1 || rect.height < 1) {
+      continue;
+    }
+
+    const x1 = clamp((rect.left - canvasRect.left) / scale, 0, pageWidthPts);
+    const x2 = clamp((rect.right - canvasRect.left) / scale, 0, pageWidthPts);
+    const yTop = clamp((rect.top - canvasRect.top) / scale, 0, pageHeightPts);
+    const yBottom = clamp(
+      (rect.bottom - canvasRect.top) / scale,
+      0,
+      pageHeightPts
+    );
+
+    rects.push([
+      roundPts(x1),
+      roundPts(pageHeightPts - yBottom),
+      roundPts(x2),
+      roundPts(pageHeightPts - yTop)
+    ]);
+  }
+
+  const firstRect = rects[0];
+
+  if (firstRect === undefined) {
+    return undefined;
+  }
+
+  const pageIndex = pageNumber - 1;
+  const topPts = Math.max(0, Math.round(pageHeightPts - firstRect[3]));
+  const sortIndex = `${String(pageIndex).padStart(5, "0")}|000000|${String(topPts).padStart(5, "0")}`;
+
+  return { pageIndex, rects, sortIndex };
+}
+
+function findSelectionRange(documents: Document[]): Range | undefined {
+  for (const doc of documents) {
+    const selection = doc.defaultView?.getSelection();
+
+    if (
+      selection !== null &&
+      selection !== undefined &&
+      selection.rangeCount > 0 &&
+      !selection.isCollapsed
+    ) {
+      return selection.getRangeAt(0);
+    }
+  }
+
+  return undefined;
+}
+
+// pdf.js sets --scale-factor on the viewer container; computed style
+// inherits it down to the page element.
+function resolveScaleFactor(element: HTMLElement): number | undefined {
+  const raw = element.ownerDocument.defaultView
+    ?.getComputedStyle(element)
+    .getPropertyValue("--scale-factor");
+  const parsed = Number.parseFloat(raw ?? "");
+
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
+}
+
+function roundPts(value: number): number {
+  return Math.round(value * 1000) / 1000;
 }
 
 async function refreshSetupState(shadow: ShadowRoot): Promise<void> {
@@ -739,11 +1105,6 @@ function compactSetupStatus(settings: ExtensionSettings): string {
   }
 
   return formatMissingConfig(setup.missingAnnotate);
-}
-
-function showReady(message: string): ReaderActionResult {
-  showToast(message, "ready");
-  return { ok: true, status: "ready", message };
 }
 
 function showSetupReminder(
@@ -1043,6 +1404,59 @@ function renderControl(): string {
           inset 0 0 2px rgba(255, 255, 255, 0.5);
       }
 
+      .annotate-deck {
+        align-items: center;
+        background:
+          linear-gradient(180deg, rgba(250, 252, 252, 0.97), rgba(224, 233, 234, 0.97));
+        border: 1px solid rgba(43, 61, 57, 0.3);
+        border-radius: 16px;
+        box-shadow:
+          0 14px 34px rgba(23, 31, 38, 0.2),
+          inset 0 1px 0 rgba(255, 255, 255, 0.95),
+          inset 0 -2px 3px rgba(68, 82, 76, 0.16);
+        display: inline-flex;
+        gap: 10px;
+        padding: 8px 10px 8px 14px;
+      }
+
+      .annotate-deck[hidden] {
+        display: none;
+      }
+
+      .rec-lamp {
+        background: #b0bcb6;
+        border-radius: 999px;
+        box-shadow: inset 0 1px 1px rgba(8, 14, 11, 0.35);
+        flex: 0 0 auto;
+        height: 10px;
+        width: 10px;
+      }
+
+      @keyframes zotero-speechify-pulse {
+        50% {
+          opacity: 0.45;
+        }
+      }
+
+      .annotate-deck[data-state="connecting"] .rec-lamp {
+        animation: zotero-speechify-pulse 1100ms ease-in-out infinite;
+        background: #d7a55f;
+        box-shadow: 0 0 7px rgba(215, 165, 95, 0.75);
+      }
+
+      .annotate-deck[data-state="live"] .rec-lamp {
+        animation: zotero-speechify-pulse 1600ms ease-in-out infinite;
+        background: #d64533;
+        box-shadow: 0 0 8px rgba(214, 69, 51, 0.8);
+      }
+
+      .annotate-label {
+        color: #17241f;
+        font-size: 12.5px;
+        letter-spacing: 0.01em;
+        text-shadow: 0 1px 0 rgba(255, 255, 255, 0.7);
+      }
+
       .transport-speed {
         color: #1d4a42;
         font-size: 12px;
@@ -1055,6 +1469,10 @@ function renderControl(): string {
 
       .action[data-ready="false"] {
         color: #63727a;
+      }
+
+      .action[data-active="true"] {
+        color: #9b3f2f;
       }
 
       .action[data-ready="false"]::after {
@@ -1150,6 +1568,17 @@ function renderControl(): string {
     </style>
     <div class="shell" data-shell data-mode="missing-config">
       <div class="status" data-status>Setup needed</div>
+      <div class="annotate-deck" data-annotate-deck hidden>
+        <span class="rec-lamp" aria-hidden="true"></span>
+        <span class="annotate-label" data-annotate-label>Annotating</span>
+        <button
+          class="transport-key"
+          data-end-annotation
+          title="End annotation"
+        >
+          ${icons.stop}
+        </button>
+      </div>
       <div
         class="transport"
         data-transport

@@ -2,7 +2,7 @@ import {
   DEFAULT_SETTINGS,
   getSettings,
   saveSettings
-} from "../shared/settings";
+} from "../../shared/settings";
 
 import "./options.css";
 
@@ -19,12 +19,66 @@ requiredButton("[data-open-shortcuts]").addEventListener("click", () => {
   void chrome.tabs.create({ url: "chrome://extensions/shortcuts" });
 });
 
+const micStatus = requiredElement("[data-mic-status]");
+const enableMicButton = requiredButton("[data-enable-mic]");
+
+enableMicButton.addEventListener("click", () => {
+  void requestMicrophone();
+});
+
+// Granting getUserMedia here grants it to the extension origin, which the
+// offscreen document then relies on for the voice annotation session (it
+// cannot show a permission prompt itself).
+async function requestMicrophone(): Promise<void> {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+    for (const track of stream.getTracks()) {
+      track.stop();
+    }
+  } catch {
+    // Denied or no device; the status refresh below reports it.
+  }
+
+  await refreshMicStatus();
+}
+
+async function refreshMicStatus(): Promise<void> {
+  const state = await queryMicPermission();
+
+  if (state === "granted") {
+    micStatus.textContent = "Microphone access granted";
+    micStatus.dataset.state = "granted";
+    enableMicButton.hidden = true;
+    return;
+  }
+
+  micStatus.textContent =
+    state === "denied"
+      ? "Microphone access denied — allow it in Chrome site settings for this extension"
+      : "Microphone access not granted yet";
+  micStatus.dataset.state = state ?? "unknown";
+  enableMicButton.hidden = false;
+}
+
+async function queryMicPermission(): Promise<PermissionState | undefined> {
+  try {
+    const result = await navigator.permissions.query({
+      name: "microphone"
+    });
+    return result.state;
+  } catch {
+    return undefined;
+  }
+}
+
 async function hydrateForm(): Promise<void> {
   const settings = await getSettings();
   setInputValue("speechifyApiKey", settings.speechifyApiKey);
   setInputValue("zoteroApiKey", settings.zoteroApiKey);
   setInputValue("speechifyAgentId", settings.speechifyAgentId);
   setInputValue("ttsVoiceId", fallbackVoiceId(settings.ttsVoiceId));
+  setCheckboxValue("ttsTextNormalization", settings.ttsTextNormalization);
   setCheckboxValue("readBackEnabled", settings.readBackEnabled);
   await renderShortcuts();
 }
@@ -35,6 +89,7 @@ async function persistSettings(): Promise<void> {
     zoteroApiKey: getInputValue("zoteroApiKey"),
     speechifyAgentId: getInputValue("speechifyAgentId"),
     ttsVoiceId: fallbackVoiceId(getInputValue("ttsVoiceId")),
+    ttsTextNormalization: getCheckboxValue("ttsTextNormalization"),
     readBackEnabled: getCheckboxValue("readBackEnabled")
   });
 
@@ -127,3 +182,4 @@ function requiredButton(selector: string): HTMLButtonElement {
 }
 
 void hydrateForm();
+void refreshMicStatus();

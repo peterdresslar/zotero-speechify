@@ -42,12 +42,7 @@ export interface SynthesizeSpeechResult {
 }
 
 export type AudioControlCommand =
-  | "pause"
-  | "resume"
-  | "stop"
-  | "restart"
-  | "status"
-  | "set-rate";
+  "pause" | "resume" | "stop" | "restart" | "status" | "set-rate";
 
 export type AudioPlaybackState = "playing" | "paused" | "stopped" | "expired";
 
@@ -60,6 +55,7 @@ export interface StreamSpeechMessage {
   rate: number;
   apiKey: string;
   voiceId: string;
+  textNormalization: boolean;
 }
 
 export interface AudioControlMessage {
@@ -74,13 +70,81 @@ export interface AudioControlResult {
   rate: number;
 }
 
+export interface OperationResult {
+  ok: boolean;
+  message: string;
+}
+
+// Captured by the content script when the user starts an annotation; the
+// service worker holds it as the single pending annotation target so a
+// stray or replayed save cannot write into the library.
+export interface AnnotationTargetInfo {
+  parentItemKey: string;
+  groupId?: string;
+  selectedText?: string;
+  pageLabel?: string;
+  attachmentKey?: string;
+  // PDF-space selection rectangles; present when the reader selection could
+  // be resolved to page coordinates, enabling a real highlight annotation.
+  highlight?: {
+    pageIndex: number;
+    rects: number[][];
+    sortIndex: string;
+  };
+}
+
+export interface StartAnnotationMessage {
+  type: "START_ANNOTATION";
+  target: AnnotationTargetInfo;
+}
+
+// Service worker → offscreen document: join the realtime agent session.
+export interface AgentSessionMessage {
+  type: "AGENT_SESSION";
+  url: string;
+  token: string;
+}
+
+export interface StopAnnotationMessage {
+  type: "STOP_ANNOTATION";
+}
+
+// Offscreen document → service worker when the agent calls the
+// save_annotation client tool.
+export interface SaveAnnotationMessage {
+  type: "SAVE_ANNOTATION";
+  verbatimText: string;
+}
+
+export interface AnnotationEndedMessage {
+  type: "ANNOTATION_ENDED";
+  reason: string;
+}
+
+// Service worker → tab after a successful save. Carries the saved highlight
+// position so the content script can draw an immediate echo overlay: the web
+// reader deliberately skips item refetches while in reader view, so the real
+// annotation only renders after a page reload.
+export interface AnnotationSavedMessage {
+  type: "ANNOTATION_SAVED";
+  highlight?: {
+    pageIndex: number;
+    rects: number[][];
+  };
+}
+
 export type ExtensionMessage =
   | RunActiveReaderActionMessage
   | RunReaderActionMessage
   | OpenOptionsMessage
   | SynthesizeSpeechMessage
   | StreamSpeechMessage
-  | AudioControlMessage;
+  | AudioControlMessage
+  | StartAnnotationMessage
+  | AgentSessionMessage
+  | StopAnnotationMessage
+  | SaveAnnotationMessage
+  | AnnotationEndedMessage;
 
 export const NOT_READER_RESULT: ReaderActionResult = {
   ok: false,
@@ -130,7 +194,8 @@ export function isStreamSpeechMessage(
     message.input.length > 0 &&
     typeof message.rate === "number" &&
     typeof message.apiKey === "string" &&
-    typeof message.voiceId === "string"
+    typeof message.voiceId === "string" &&
+    typeof message.textNormalization === "boolean"
   );
 }
 
@@ -153,6 +218,89 @@ function isAudioControlCommand(value: unknown): value is AudioControlCommand {
     value === "restart" ||
     value === "status" ||
     value === "set-rate"
+  );
+}
+
+export function isStartAnnotationMessage(
+  message: unknown
+): message is StartAnnotationMessage {
+  return (
+    isObject(message) &&
+    message.type === "START_ANNOTATION" &&
+    isAnnotationTargetInfo(message.target)
+  );
+}
+
+export function isAgentSessionMessage(
+  message: unknown
+): message is AgentSessionMessage {
+  return (
+    isObject(message) &&
+    message.type === "AGENT_SESSION" &&
+    typeof message.url === "string" &&
+    typeof message.token === "string"
+  );
+}
+
+export function isStopAnnotationMessage(
+  message: unknown
+): message is StopAnnotationMessage {
+  return isObject(message) && message.type === "STOP_ANNOTATION";
+}
+
+export function isSaveAnnotationMessage(
+  message: unknown
+): message is SaveAnnotationMessage {
+  return (
+    isObject(message) &&
+    message.type === "SAVE_ANNOTATION" &&
+    typeof message.verbatimText === "string" &&
+    message.verbatimText.trim().length > 0
+  );
+}
+
+export function isAnnotationEndedMessage(
+  message: unknown
+): message is AnnotationEndedMessage {
+  return (
+    isObject(message) &&
+    message.type === "ANNOTATION_ENDED" &&
+    typeof message.reason === "string"
+  );
+}
+
+function isAnnotationTargetInfo(value: unknown): value is AnnotationTargetInfo {
+  return (
+    isObject(value) &&
+    typeof value.parentItemKey === "string" &&
+    value.parentItemKey.length > 0 &&
+    (value.groupId === undefined || typeof value.groupId === "string") &&
+    (value.selectedText === undefined ||
+      typeof value.selectedText === "string") &&
+    (value.pageLabel === undefined || typeof value.pageLabel === "string") &&
+    (value.attachmentKey === undefined ||
+      typeof value.attachmentKey === "string") &&
+    (value.highlight === undefined || isHighlightInfo(value.highlight))
+  );
+}
+
+function isHighlightInfo(value: unknown): value is {
+  pageIndex: number;
+  rects: number[][];
+  sortIndex: string;
+} {
+  return (
+    isObject(value) &&
+    typeof value.pageIndex === "number" &&
+    typeof value.sortIndex === "string" &&
+    Array.isArray(value.rects) &&
+    value.rects.length > 0 &&
+    value.rects.every(
+      (rect) =>
+        Array.isArray(rect) &&
+        rect.length === 4 &&
+        rect.every((coord) => typeof coord === "number")
+    )
   );
 }
 

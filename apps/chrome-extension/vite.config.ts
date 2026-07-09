@@ -11,12 +11,21 @@ export default defineConfig({
     emptyOutDir: true,
     sourcemap: true,
     rollupOptions: {
+      // MV3 entrypoints (src/entries/*). Each output has platform
+      // constraints: the content script must stay import-free (classic
+      // script), the service worker and pages may import chunks.
       input: {
-        popup: resolve(appRoot, "src/popup/index.html"),
-        options: resolve(appRoot, "src/options/index.html"),
-        offscreen: resolve(appRoot, "src/offscreen/index.html"),
-        "service-worker": resolve(appRoot, "src/background/service-worker.ts"),
-        "reader-control": resolve(appRoot, "src/content/reader-control.ts")
+        popup: resolve(appRoot, "src/entries/popup/index.html"),
+        options: resolve(appRoot, "src/entries/options/index.html"),
+        offscreen: resolve(appRoot, "src/entries/offscreen/index.html"),
+        "service-worker": resolve(
+          appRoot,
+          "src/entries/background/service-worker.ts"
+        ),
+        "reader-control": resolve(
+          appRoot,
+          "src/entries/content/reader-control.ts"
+        )
       },
       output: {
         entryFileNames: "assets/[name].js",

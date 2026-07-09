@@ -42,9 +42,27 @@
             <input name="ttsVoiceId" type="text" autocomplete="off" />
           </label>
           <label class="switch-row">
+            <input name="ttsTextNormalization" type="checkbox" />
+            <span>Apply Text Normalization (can slow responses)</span>
+          </label>
+          <label class="switch-row">
             <input name="readBackEnabled" type="checkbox" />
             <span>Read back before saving</span>
           </label>
+        </section>
+
+        <section class="settings-section">
+          <h2>Microphone</h2>
+          <p class="section-note">
+            Voice annotation listens through the extension, so Chrome needs a
+            one-time microphone grant for it.
+          </p>
+          <div class="mic-row">
+            <span class="mic-status" data-mic-status>Checking…</span>
+            <button type="button" class="secondary" data-enable-mic>
+              Enable microphone
+            </button>
+          </div>
         </section>
 
         <section class="settings-section shortcuts">

@@ -3,6 +3,7 @@ export interface ExtensionSettings {
   zoteroApiKey: string;
   speechifyAgentId: string;
   ttsVoiceId: string;
+  ttsTextNormalization: boolean;
   readBackEnabled: boolean;
 }
 
@@ -20,6 +21,7 @@ export const DEFAULT_SETTINGS: ExtensionSettings = {
   zoteroApiKey: "",
   speechifyAgentId: "",
   ttsVoiceId: "geffen_32",
+  ttsTextNormalization: false,
   readBackEnabled: false
 };
 
@@ -45,10 +47,11 @@ export function getSetupState(settings: ExtensionSettings): SetupState {
   const missingSay = missingLabels([
     ["Speechify key", settings.speechifyApiKey]
   ]);
+  // The agent id is not required from the user: the extension provisions
+  // the annotation agent automatically on first use and stores its id.
   const missingAnnotate = missingLabels([
     ["Speechify key", settings.speechifyApiKey],
-    ["Zotero key", settings.zoteroApiKey],
-    ["Agent ID", settings.speechifyAgentId]
+    ["Zotero key", settings.zoteroApiKey]
   ]);
 
   return {
@@ -90,6 +93,7 @@ function isStoredSettings(value: unknown): value is Partial<ExtensionSettings> {
     optionalString(candidate.zoteroApiKey) &&
     optionalString(candidate.speechifyAgentId) &&
     optionalString(candidate.ttsVoiceId) &&
+    optionalBoolean(candidate.ttsTextNormalization) &&
     optionalBoolean(candidate.readBackEnabled)
   );
 }

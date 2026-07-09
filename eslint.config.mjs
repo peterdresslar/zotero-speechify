@@ -8,6 +8,7 @@ export default tseslint.config(
       "**/dist/**",
       "**/node_modules/**",
       "**/coverage/**",
+      "**/scripts/*.mjs",
       "eslint.config.mjs",
       "pnpm-lock.yaml"
     ]

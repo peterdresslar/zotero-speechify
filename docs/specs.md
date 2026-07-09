@@ -16,7 +16,7 @@ A Zotero plugin (.xpi) that allows a user to talk with their papers.
 
 - Read the selected text aloud.
 - {v1} If no text is selected, say "sorry, I don't see a selected passage to read." Do say
-something out loud in this case! Otherwise users will not know what's wrong.
+  something out loud in this case! Otherwise users will not know what's wrong.
 
 ### Annotate
 
@@ -46,7 +46,7 @@ From the Zotero menu click Voice Annotate here.
 - Cencel. Cancel the annotation.
 - Restart. Restart the annotation from the beginning at the same (or whatever current) location.
 
-[INSTRUCTIONS] This is at the end of the prompt to say the annotation. We may optionally (occassionally? First time?) mention 
+[INSTRUCTIONS] This is at the end of the prompt to say the annotation. We may optionally (occassionally? First time?) mention
 that the user can ask to pause, restart, or cancel. Or whatever optionality we can provide.
 
 [QUESTION] Does it make sense to read back and confirm? This may be a v2 feature.
@@ -66,13 +66,13 @@ Not yet sure about this capability. Possibly desirable but not {v1}
 ### More v1 notes
 
 - v1 human interface in the browser should be sophisticated and attractive. Go
-the extra distance on in-reader controls.
+  the extra distance on in-reader controls.
 - The in-reader control can have a double/split button for say/annotate. Note that
-given the context, skeumorphic control design seem reasonable
+  given the context, skeumorphic control design seem reasonable
 - Use toasts with (gentle, elegant) text errors but also speak them aloud. If we don't say errors
-aloud users might think the error is an audio issue
+  aloud users might think the error is an audio issue
 - Tools requiring an API key or some other config can appear as disabled, but we do not want
-them to disappear entirely from the page--instead clicking them should remind the user
-that we need more information to set up.
+  them to disappear entirely from the page--instead clicking them should remind the user
+  that we need more information to set up.
 - All UI should be relatively elegant (considering this is Zotero online instead of desktop)
 - Keyboard shortcuts for say and annotate should be configurable

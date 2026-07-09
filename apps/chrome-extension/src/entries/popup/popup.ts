@@ -1,10 +1,10 @@
-import { icons } from "../shared/icons";
+import { icons } from "../../shared/icons";
 import {
   type ReaderAction,
   type ReaderActionResult,
   type RunActiveReaderActionMessage
-} from "../shared/messages";
-import { getSettings } from "../shared/settings";
+} from "../../shared/messages";
+import { getSettings } from "../../shared/settings";
 
 import "./popup.css";
 

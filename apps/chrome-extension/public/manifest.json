@@ -1,13 +1,13 @@
 {
   "manifest_version": 3,
   "name": "Zotero Speechify",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "description": "Unofficial voice controls for the Zotero Web reader.",
   "action": {
     "default_title": "Zotero Speechify",
-    "default_popup": "src/popup/index.html"
+    "default_popup": "src/entries/popup/index.html"
   },
-  "options_page": "src/options/index.html",
+  "options_page": "src/entries/options/index.html",
   "permissions": ["activeTab", "offscreen", "storage"],
   "host_permissions": [
     "https://www.zotero.org/*/items/*/reader*",

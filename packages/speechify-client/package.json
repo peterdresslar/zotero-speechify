@@ -13,6 +13,10 @@
   },
   "scripts": {
     "build": "tsc -p tsconfig.json --noEmit",
-    "lint:check": "eslint ."
+    "lint:check": "eslint .",
+    "provision": "node scripts/provision.ts"
+  },
+  "devDependencies": {
+    "@types/node": "^24.10.0"
   }
 }
