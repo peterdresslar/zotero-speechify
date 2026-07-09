@@ -5,6 +5,8 @@ import {
   isOpenOptionsMessage,
   isRunActiveReaderActionMessage,
   isSynthesizeSpeechMessage,
+  type AudioControlResult,
+  type PlayAudioMessage,
   type ReaderAction,
   type ReaderActionResult,
   type RunReaderActionMessage,
@@ -27,14 +29,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
 
   if (isSynthesizeSpeechMessage(message)) {
-    void synthesizeInput(message.input).then(sendResponse);
+    void synthesizeInput(message.input, message.rate).then(sendResponse);
     return true;
   }
 
   return false;
 });
 
-async function synthesizeInput(input: string): Promise<SynthesizeSpeechResult> {
+async function synthesizeInput(
+  input: string,
+  rate: number
+): Promise<SynthesizeSpeechResult> {
   const settings = await getSettings();
 
   if (settings.speechifyApiKey.trim().length === 0) {
@@ -51,14 +56,40 @@ async function synthesizeInput(input: string): Promise<SynthesizeSpeechResult> {
       input
     });
 
-    return {
-      ok: true,
+    await ensureOffscreenDocument();
+    const playMessage: PlayAudioMessage = {
+      type: "PLAY_AUDIO",
       audioDataBase64: speech.audioDataBase64,
-      message: "Reading selected text."
+      rate
     };
+    const playResult: AudioControlResult =
+      await chrome.runtime.sendMessage(playMessage);
+
+    if (!playResult.ok) {
+      return { ok: false, message: "Sorry, I could not start playback." };
+    }
+
+    return { ok: true, message: "Reading selected text." };
   } catch (error) {
     return { ok: false, message: describeSynthesisFailure(error) };
   }
+}
+
+async function ensureOffscreenDocument(): Promise<void> {
+  const contexts = await chrome.runtime.getContexts({
+    contextTypes: [chrome.runtime.ContextType.OFFSCREEN_DOCUMENT]
+  });
+
+  if (contexts.length > 0) {
+    return;
+  }
+
+  await chrome.offscreen.createDocument({
+    url: "src/offscreen/index.html",
+    reasons: [chrome.offscreen.Reason.AUDIO_PLAYBACK],
+    justification:
+      "Plays Speechify text-to-speech audio with pause and speed controls."
+  });
 }
 
 function describeSynthesisFailure(error: unknown): string {

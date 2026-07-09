@@ -33,19 +33,49 @@ export interface OpenOptionsMessage {
 export interface SynthesizeSpeechMessage {
   type: "SYNTHESIZE_SPEECH";
   input: string;
+  rate: number;
 }
 
 export interface SynthesizeSpeechResult {
   ok: boolean;
-  audioDataBase64?: string;
   message: string;
+}
+
+export type AudioControlCommand =
+  | "pause"
+  | "resume"
+  | "stop"
+  | "restart"
+  | "status"
+  | "set-rate";
+
+export type AudioPlaybackState = "playing" | "paused" | "stopped" | "expired";
+
+export interface PlayAudioMessage {
+  type: "PLAY_AUDIO";
+  audioDataBase64: string;
+  rate: number;
+}
+
+export interface AudioControlMessage {
+  type: "AUDIO_CONTROL";
+  command: AudioControlCommand;
+  rate?: number;
+}
+
+export interface AudioControlResult {
+  ok: boolean;
+  state: AudioPlaybackState;
+  rate: number;
 }
 
 export type ExtensionMessage =
   | RunActiveReaderActionMessage
   | RunReaderActionMessage
   | OpenOptionsMessage
-  | SynthesizeSpeechMessage;
+  | SynthesizeSpeechMessage
+  | PlayAudioMessage
+  | AudioControlMessage;
 
 export const NOT_READER_RESULT: ReaderActionResult = {
   ok: false,
@@ -80,7 +110,41 @@ export function isSynthesizeSpeechMessage(
     isObject(message) &&
     message.type === "SYNTHESIZE_SPEECH" &&
     typeof message.input === "string" &&
-    message.input.length > 0
+    message.input.length > 0 &&
+    typeof message.rate === "number"
+  );
+}
+
+export function isPlayAudioMessage(
+  message: unknown
+): message is PlayAudioMessage {
+  return (
+    isObject(message) &&
+    message.type === "PLAY_AUDIO" &&
+    typeof message.audioDataBase64 === "string" &&
+    typeof message.rate === "number"
+  );
+}
+
+export function isAudioControlMessage(
+  message: unknown
+): message is AudioControlMessage {
+  return (
+    isObject(message) &&
+    message.type === "AUDIO_CONTROL" &&
+    isAudioControlCommand(message.command) &&
+    (message.rate === undefined || typeof message.rate === "number")
+  );
+}
+
+function isAudioControlCommand(value: unknown): value is AudioControlCommand {
+  return (
+    value === "pause" ||
+    value === "resume" ||
+    value === "stop" ||
+    value === "restart" ||
+    value === "status" ||
+    value === "set-rate"
   );
 }
 

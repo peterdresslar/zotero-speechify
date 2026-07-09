@@ -70,7 +70,15 @@ const icons = {
   settings:
     '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.6V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.6 1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.6-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.6-1 1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3h.1a1.7 1.7 0 0 0 1-1.6V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.6h.1a1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9v.1a1.7 1.7 0 0 0 1.6 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1Z"/></svg>',
   volume:
-    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5Z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a9 9 0 0 1 0 14"/></svg>'
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M11 5 6 9H3v6h3l5 4V5Z"/><path d="M15.5 8.5a5 5 0 0 1 0 7"/><path d="M19 5a9 9 0 0 1 0 14"/></svg>',
+  play: '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5.5 10 6.5-10 6.5Z"/></svg>',
+  pause:
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9.5 5.5v13"/><path d="M14.5 5.5v13"/></svg>',
+  stop: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>',
+  restart:
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5.5v13"/><path d="m18 5.5-8 6.5 8 6.5Z"/></svg>',
+  loading:
+    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a8 8 0 1 0 8 8"/></svg>'
 } as const;
 
 function isRunReaderActionMessage(
@@ -254,86 +262,194 @@ const SELECTION_PREVIEW_ENABLED =
 
 interface SynthesizeSpeechResult {
   ok: boolean;
-  audioDataBase64?: string;
   message: string;
 }
 
-let audioContext: AudioContext | undefined;
-let currentAudioSource: AudioBufferSourceNode | undefined;
+type AudioControlCommand =
+  | "pause"
+  | "resume"
+  | "stop"
+  | "restart"
+  | "status"
+  | "set-rate";
 
+type AudioPlaybackState = "playing" | "paused" | "stopped" | "expired";
+
+interface AudioControlResult {
+  ok: boolean;
+  state: AudioPlaybackState;
+  rate: number;
+}
+
+const PLAYBACK_RATES = [0.8, 1, 1.2, 1.5, 2] as const;
+const PLAYBACK_POLL_MS = 1200;
+const READING_EXPIRED_MESSAGE =
+  "That reading has ended — press Say to start another.";
+
+let preferredRate = 1;
+let playbackPollTimer: ReturnType<typeof setInterval> | undefined;
+let voiceLoading = false;
+
+// Playback happens in the extension's offscreen document, where an audio
+// element gets pitch-preserving speed control and is exempt from the page
+// CSP and autoplay policy. This script is only the remote control.
 async function startSaying(selectedText: string): Promise<ReaderActionResult> {
   showToast(
     SELECTION_PREVIEW_ENABLED
       ? formatSelectionPreview(selectedText)
-      : "Fetching audio…",
+      : "Loading voice…",
     "ready"
   );
+  setTransportLoading();
 
   const result: SynthesizeSpeechResult = await chrome.runtime.sendMessage({
     type: "SYNTHESIZE_SPEECH",
-    input: selectedText
+    input: selectedText,
+    rate: preferredRate
   });
 
-  if (!result.ok || result.audioDataBase64 === undefined) {
+  voiceLoading = false;
+
+  if (!result.ok) {
+    applyPlaybackResult(undefined);
     showToast(result.message, "warning");
     speakStatus(result.message);
     return { ok: false, status: "error", message: result.message };
   }
 
-  try {
-    await playAudioData(result.audioDataBase64);
-  } catch {
-    const message = "Sorry, I fetched the audio but could not play it.";
-    showToast(message, "warning");
-    speakStatus(message);
-    return { ok: false, status: "error", message };
-  }
-
+  applyPlaybackResult({ ok: true, state: "playing", rate: preferredRate });
   return { ok: true, status: "ready", message: "Reading selected text." };
 }
 
-// Playback goes through Web Audio because the page CSP on zotero.org blocks
-// data:/blob: media loads; decodeAudioData works on raw bytes and never
-// performs a resource load, so the page CSP does not apply.
-async function playAudioData(audioDataBase64: string): Promise<void> {
-  audioContext ??= new AudioContext();
+// Shows the transport immediately with a spinner in the play slot and the
+// keys muted, so pressing Say gives feedback for the whole synthesis wait.
+function setTransportLoading(): void {
+  voiceLoading = true;
+  stopPlaybackPolling();
 
-  if (audioContext.state === "suspended") {
-    await audioContext.resume();
+  const shadow = getControlShadow();
+
+  if (shadow === undefined) {
+    return;
   }
 
-  stopCurrentAudio();
+  const transport = requiredHtmlElement(shadow, "[data-transport]");
+  transport.hidden = false;
+  transport.dataset.loading = "true";
 
-  const audioBuffer = await audioContext.decodeAudioData(
-    decodeBase64ToArrayBuffer(audioDataBase64)
-  );
-  const source = audioContext.createBufferSource();
-  source.buffer = audioBuffer;
-  source.connect(audioContext.destination);
-  source.start();
-  currentAudioSource = source;
+  const playPauseButton = requiredButton(shadow, "[data-play-pause]");
+  playPauseButton.dataset.state = "loading";
+  playPauseButton.innerHTML = icons.loading;
+  playPauseButton.title = "Loading voice…";
+  requiredHtmlElement(shadow, "[data-speed]").textContent =
+    formatRate(preferredRate);
 }
 
-function stopCurrentAudio(): void {
+async function sendAudioControl(
+  command: AudioControlCommand,
+  rate?: number
+): Promise<AudioControlResult | undefined> {
   try {
-    currentAudioSource?.stop();
-  } catch {
-    // Already stopped or finished; nothing to do.
-  }
+    const result: AudioControlResult | undefined =
+      await chrome.runtime.sendMessage({
+        type: "AUDIO_CONTROL",
+        command,
+        rate
+      });
 
-  currentAudioSource = undefined;
+    return result;
+  } catch {
+    return undefined;
+  }
 }
 
-function decodeBase64ToArrayBuffer(base64: string): ArrayBuffer {
-  const binary = atob(base64);
-  const buffer = new ArrayBuffer(binary.length);
-  const bytes = new Uint8Array(buffer);
+async function togglePlayPause(): Promise<void> {
+  const shadow = getControlShadow();
+  const state =
+    shadow === undefined
+      ? undefined
+      : requiredButton(shadow, "[data-play-pause]").dataset.state;
+  const result = await sendAudioControl(
+    state === "playing" ? "pause" : "resume"
+  );
 
-  for (let index = 0; index < binary.length; index += 1) {
-    bytes[index] = binary.charCodeAt(index);
+  notifyIfExpired(result);
+  applyPlaybackResult(result);
+}
+
+async function restartPlayback(): Promise<void> {
+  const result = await sendAudioControl("restart");
+  notifyIfExpired(result);
+  applyPlaybackResult(result);
+}
+
+async function cyclePlaybackRate(): Promise<void> {
+  const index = PLAYBACK_RATES.findIndex((rate) => rate === preferredRate);
+  preferredRate = PLAYBACK_RATES[(index + 1) % PLAYBACK_RATES.length];
+  applyPlaybackResult(await sendAudioControl("set-rate", preferredRate));
+}
+
+function notifyIfExpired(result: AudioControlResult | undefined): void {
+  if (result === undefined || result.state === "expired") {
+    showToast(READING_EXPIRED_MESSAGE, "warning");
+  }
+}
+
+function applyPlaybackResult(result: AudioControlResult | undefined): void {
+  const shadow = getControlShadow();
+
+  if (shadow === undefined) {
+    return;
   }
 
-  return buffer;
+  const transport = requiredHtmlElement(shadow, "[data-transport]");
+  delete transport.dataset.loading;
+
+  if (
+    result === undefined ||
+    result.state === "stopped" ||
+    result.state === "expired"
+  ) {
+    transport.hidden = true;
+    stopPlaybackPolling();
+    return;
+  }
+
+  transport.hidden = false;
+  const playPauseButton = requiredButton(shadow, "[data-play-pause]");
+  playPauseButton.dataset.state = result.state;
+  playPauseButton.innerHTML =
+    result.state === "playing" ? icons.pause : icons.play;
+  playPauseButton.title = result.state === "playing" ? "Pause" : "Play";
+  requiredHtmlElement(shadow, "[data-speed]").textContent = formatRate(
+    result.rate
+  );
+  startPlaybackPolling();
+}
+
+function startPlaybackPolling(): void {
+  playbackPollTimer ??= setInterval(() => {
+    void sendAudioControl("status").then((result) => {
+      if (!voiceLoading) {
+        applyPlaybackResult(result);
+      }
+    });
+  }, PLAYBACK_POLL_MS);
+}
+
+function stopPlaybackPolling(): void {
+  if (playbackPollTimer !== undefined) {
+    clearInterval(playbackPollTimer);
+    playbackPollTimer = undefined;
+  }
+}
+
+function getControlShadow(): ShadowRoot | undefined {
+  return document.getElementById(HOST_ID)?.shadowRoot ?? undefined;
+}
+
+function formatRate(rate: number): string {
+  return `${String(rate)}×`;
 }
 
 function formatSelectionPreview(selectedText: string): string {
@@ -414,6 +530,22 @@ function bindControl(shadow: ShadowRoot): void {
 
   settingsButton.addEventListener("click", () => {
     void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS" });
+  });
+
+  requiredButton(shadow, "[data-play-pause]").addEventListener("click", () => {
+    void togglePlayPause();
+  });
+
+  requiredButton(shadow, "[data-restart]").addEventListener("click", () => {
+    void restartPlayback();
+  });
+
+  requiredButton(shadow, "[data-stop]").addEventListener("click", () => {
+    void sendAudioControl("stop").then(applyPlaybackResult);
+  });
+
+  requiredButton(shadow, "[data-speed]").addEventListener("click", () => {
+    void cyclePlaybackRate();
   });
 }
 
@@ -662,7 +794,103 @@ function renderControl(): string {
 
       .action:active,
       .settings:active {
+        box-shadow: inset 0 2px 4px rgba(43, 61, 57, 0.18);
         transform: translateY(1px);
+      }
+
+      .action span {
+        text-shadow: 0 1px 0 rgba(255, 255, 255, 0.65);
+      }
+
+      .transport {
+        align-items: center;
+        background:
+          linear-gradient(180deg, rgba(250, 252, 252, 0.97), rgba(224, 233, 234, 0.97));
+        border: 1px solid rgba(43, 61, 57, 0.3);
+        border-radius: 16px;
+        box-shadow:
+          0 14px 34px rgba(23, 31, 38, 0.2),
+          inset 0 1px 0 rgba(255, 255, 255, 0.95),
+          inset 0 -2px 3px rgba(68, 82, 76, 0.16);
+        display: inline-flex;
+        gap: 7px;
+        padding: 8px 10px;
+      }
+
+      .transport[hidden] {
+        display: none;
+      }
+
+      .transport-key,
+      .transport-speed {
+        align-items: center;
+        appearance: none;
+        background: linear-gradient(180deg, #fdfefe, #e2eaeb);
+        border: 1px solid rgba(43, 61, 57, 0.32);
+        border-radius: 11px;
+        box-shadow:
+          0 2px 3px rgba(23, 31, 38, 0.16),
+          inset 0 1px 0 rgba(255, 255, 255, 0.95),
+          inset 0 -1px 0 rgba(68, 82, 76, 0.12);
+        color: #17241f;
+        cursor: pointer;
+        display: inline-flex;
+        height: 34px;
+        justify-content: center;
+        outline: none;
+        padding: 0;
+        transition:
+          background-color 120ms ease,
+          box-shadow 120ms ease,
+          transform 120ms ease;
+        width: 36px;
+      }
+
+      .transport-key:hover,
+      .transport-speed:hover,
+      .transport-key:focus-visible,
+      .transport-speed:focus-visible {
+        background: linear-gradient(180deg, #f4faf9, #dbe6e5);
+      }
+
+      .transport-key:active,
+      .transport-speed:active {
+        background: linear-gradient(180deg, #e3ecec, #d6e1e2);
+        box-shadow:
+          0 1px 1px rgba(23, 31, 38, 0.12),
+          inset 0 2px 4px rgba(43, 61, 57, 0.28);
+        transform: translateY(1px);
+      }
+
+      .transport-key svg {
+        height: 15px;
+        width: 15px;
+      }
+
+      .transport[data-loading="true"] .transport-key,
+      .transport[data-loading="true"] .transport-speed {
+        color: #63727a;
+        pointer-events: none;
+      }
+
+      @keyframes zotero-speechify-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+
+      .transport-key[data-state="loading"] svg {
+        animation: zotero-speechify-spin 900ms linear infinite;
+      }
+
+      .transport-speed {
+        color: #1d4a42;
+        font-size: 12px;
+        font-variant-numeric: tabular-nums;
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        text-shadow: 0 1px 0 rgba(255, 255, 255, 0.8);
+        width: 48px;
       }
 
       .action[data-ready="false"] {
@@ -762,6 +990,31 @@ function renderControl(): string {
     </style>
     <div class="shell" data-shell data-mode="missing-config">
       <div class="status" data-status>Setup needed</div>
+      <div
+        class="transport"
+        data-transport
+        role="group"
+        aria-label="Playback controls"
+        hidden
+      >
+        <button class="transport-key" data-restart title="Restart">
+          ${icons.restart}
+        </button>
+        <button
+          class="transport-key"
+          data-play-pause
+          data-state="paused"
+          title="Play"
+        >
+          ${icons.play}
+        </button>
+        <button class="transport-key" data-stop title="Stop">
+          ${icons.stop}
+        </button>
+        <button class="transport-speed" data-speed title="Playback speed">
+          1×
+        </button>
+      </div>
       <div class="control" role="group" aria-label="Zotero Speechify">
         <button class="action" data-say data-ready="false" title="Say">
           ${icons.volume}

@@ -14,6 +14,7 @@ export default defineConfig({
       input: {
         popup: resolve(appRoot, "src/popup/index.html"),
         options: resolve(appRoot, "src/options/index.html"),
+        offscreen: resolve(appRoot, "src/offscreen/index.html"),
         "service-worker": resolve(appRoot, "src/background/service-worker.ts"),
         "reader-control": resolve(appRoot, "src/content/reader-control.ts")
       },
