@@ -9,31 +9,50 @@ export interface SynthesizeSpeechInput {
   input: string;
 }
 
-export interface SynthesizedSpeech {
-  audioDataBase64: string;
-  audioFormat: string;
+// Say synthesis via the official SDK's streaming endpoint (the SDK performs
+// its own fetch, so it must be called from a context with Speechify host
+// permissions, such as the extension offscreen document). Bytes start
+// arriving well before synthesis of the full input finishes.
+export async function streamSpeech(
+  { apiKey, voiceId, input }: SynthesizeSpeechInput,
+  abortSignal?: AbortSignal
+): Promise<ReadableStream<Uint8Array>> {
+  const client = new SpeechifyClient({ apiKey });
+  const response = await client.audio.stream(
+    {
+      Accept: "audio/mpeg",
+      input,
+      voice_id: voiceId
+    },
+    { abortSignal }
+  );
+  const stream = response.stream();
+
+  if (stream === null) {
+    throw new Error("Speechify returned an empty audio stream.");
+  }
+
+  return stream;
 }
 
-// Say synthesis via the official SDK (which performs its own fetch, so it
-// must be called from a context with Speechify host permissions, such as the
-// extension service worker). Returns the complete clip as base64 so it can
-// cross an extension message boundary.
-export async function synthesizeSpeech({
-  apiKey,
-  voiceId,
-  input
-}: SynthesizeSpeechInput): Promise<SynthesizedSpeech> {
-  const client = new SpeechifyClient({ apiKey });
-  const response = await client.audio.speech({
-    audio_format: "mp3",
-    input,
-    voice_id: voiceId
-  });
+export function describeSpeechifyFailure(error: unknown): string {
+  const statusCode =
+    typeof error === "object" &&
+    error !== null &&
+    "statusCode" in error &&
+    typeof error.statusCode === "number"
+      ? error.statusCode
+      : undefined;
 
-  return {
-    audioDataBase64: response.audio_data,
-    audioFormat: response.audio_format
-  };
+  if (statusCode === 401 || statusCode === 403) {
+    return "Speechify rejected the API key. Please check it in Settings.";
+  }
+
+  if (statusCode !== undefined) {
+    return `Speechify could not synthesize the selection (status ${String(statusCode)}).`;
+  }
+
+  return "Sorry, I could not reach Speechify to synthesize the selection.";
 }
 
 export interface AgentSessionRequestInput {

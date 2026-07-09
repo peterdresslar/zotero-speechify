@@ -51,10 +51,15 @@ export type AudioControlCommand =
 
 export type AudioPlaybackState = "playing" | "paused" | "stopped" | "expired";
 
-export interface PlayAudioMessage {
-  type: "PLAY_AUDIO";
-  audioDataBase64: string;
+// Extension-internal only (service worker → offscreen document); content
+// scripts cannot receive runtime.sendMessage broadcasts, so the key stays
+// within extension pages.
+export interface StreamSpeechMessage {
+  type: "STREAM_SPEECH";
+  input: string;
   rate: number;
+  apiKey: string;
+  voiceId: string;
 }
 
 export interface AudioControlMessage {
@@ -74,7 +79,7 @@ export type ExtensionMessage =
   | RunReaderActionMessage
   | OpenOptionsMessage
   | SynthesizeSpeechMessage
-  | PlayAudioMessage
+  | StreamSpeechMessage
   | AudioControlMessage;
 
 export const NOT_READER_RESULT: ReaderActionResult = {
@@ -115,14 +120,17 @@ export function isSynthesizeSpeechMessage(
   );
 }
 
-export function isPlayAudioMessage(
+export function isStreamSpeechMessage(
   message: unknown
-): message is PlayAudioMessage {
+): message is StreamSpeechMessage {
   return (
     isObject(message) &&
-    message.type === "PLAY_AUDIO" &&
-    typeof message.audioDataBase64 === "string" &&
-    typeof message.rate === "number"
+    message.type === "STREAM_SPEECH" &&
+    typeof message.input === "string" &&
+    message.input.length > 0 &&
+    typeof message.rate === "number" &&
+    typeof message.apiKey === "string" &&
+    typeof message.voiceId === "string"
   );
 }
 

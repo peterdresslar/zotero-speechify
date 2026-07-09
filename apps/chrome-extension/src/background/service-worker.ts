@@ -1,15 +1,12 @@
-import { synthesizeSpeech } from "@zotero-speechify/speechify-client";
-
 import {
   NOT_READER_RESULT,
   isOpenOptionsMessage,
   isRunActiveReaderActionMessage,
   isSynthesizeSpeechMessage,
-  type AudioControlResult,
-  type PlayAudioMessage,
   type ReaderAction,
   type ReaderActionResult,
   type RunReaderActionMessage,
+  type StreamSpeechMessage,
   type SynthesizeSpeechResult
 } from "../shared/messages";
 import { getSettings } from "../shared/settings";
@@ -36,6 +33,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return false;
 });
 
+// The offscreen document streams and plays the audio itself (it reads the
+// API key from storage directly); this worker only validates setup, makes
+// sure the document exists, and relays the request.
 async function synthesizeInput(
   input: string,
   rate: number
@@ -50,28 +50,20 @@ async function synthesizeInput(
   }
 
   try {
-    const speech = await synthesizeSpeech({
-      apiKey: settings.speechifyApiKey,
-      voiceId: settings.ttsVoiceId,
-      input
-    });
-
     await ensureOffscreenDocument();
-    const playMessage: PlayAudioMessage = {
-      type: "PLAY_AUDIO",
-      audioDataBase64: speech.audioDataBase64,
-      rate
+    const streamMessage: StreamSpeechMessage = {
+      type: "STREAM_SPEECH",
+      input,
+      rate,
+      apiKey: settings.speechifyApiKey,
+      voiceId: settings.ttsVoiceId
     };
-    const playResult: AudioControlResult =
-      await chrome.runtime.sendMessage(playMessage);
+    const result: SynthesizeSpeechResult =
+      await chrome.runtime.sendMessage(streamMessage);
 
-    if (!playResult.ok) {
-      return { ok: false, message: "Sorry, I could not start playback." };
-    }
-
-    return { ok: true, message: "Reading selected text." };
-  } catch (error) {
-    return { ok: false, message: describeSynthesisFailure(error) };
+    return result;
+  } catch {
+    return { ok: false, message: "Sorry, I could not start playback." };
   }
 }
 
@@ -90,26 +82,6 @@ async function ensureOffscreenDocument(): Promise<void> {
     justification:
       "Plays Speechify text-to-speech audio with pause and speed controls."
   });
-}
-
-function describeSynthesisFailure(error: unknown): string {
-  const statusCode =
-    typeof error === "object" &&
-    error !== null &&
-    "statusCode" in error &&
-    typeof error.statusCode === "number"
-      ? error.statusCode
-      : undefined;
-
-  if (statusCode === 401 || statusCode === 403) {
-    return "Speechify rejected the API key. Please check it in Settings.";
-  }
-
-  if (statusCode !== undefined) {
-    return `Speechify could not synthesize the selection (status ${String(statusCode)}).`;
-  }
-
-  return "Sorry, I could not reach Speechify to synthesize the selection.";
 }
 
 chrome.commands.onCommand.addListener((command) => {
