@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Zotero Speechify Settings</title>
+    <script type="module" src="./options.ts"></script>
+  </head>
+  <body>
+    <main class="settings-shell">
+      <header class="settings-header">
+        <p class="eyebrow">Zotero Speechify</p>
+        <h1>Settings</h1>
+      </header>
+
+      <form class="settings-form" data-form>
+        <section class="settings-section">
+          <h2>Keys</h2>
+          <label>
+            <span>Speechify API key</span>
+            <input name="speechifyApiKey" type="password" autocomplete="off" />
+          </label>
+          <label>
+            <span>Zotero API key</span>
+            <input name="zoteroApiKey" type="password" autocomplete="off" />
+          </label>
+        </section>
+
+        <section class="settings-section">
+          <h2>Agent</h2>
+          <label>
+            <span>Speechify agent ID</span>
+            <input
+              name="speechifyAgentId"
+              type="text"
+              autocomplete="off"
+              placeholder="agent_..."
+            />
+          </label>
+          <label>
+            <span>TTS voice ID</span>
+            <input name="ttsVoiceId" type="text" autocomplete="off" />
+          </label>
+          <label class="switch-row">
+            <input name="readBackEnabled" type="checkbox" />
+            <span>Read back before saving</span>
+          </label>
+        </section>
+
+        <section class="settings-section shortcuts">
+          <h2>Shortcuts</h2>
+          <div data-shortcuts></div>
+          <button type="button" class="secondary" data-open-shortcuts>
+            Open Chrome Shortcuts
+          </button>
+        </section>
+
+        <footer class="form-footer">
+          <p data-save-status role="status"></p>
+          <button type="submit">Save</button>
+        </footer>
+      </form>
+    </main>
+  </body>
+</html>

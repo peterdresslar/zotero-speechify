@@ -1,0 +1,17 @@
+{
+  "name": "@zotero-speechify/speechify-client",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "types": "./src/index.ts",
+  "dependencies": {
+    "@zotero-speechify/agent-config": "workspace:*"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json --noEmit",
+    "lint:check": "eslint ."
+  }
+}

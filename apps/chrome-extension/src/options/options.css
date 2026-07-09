@@ -1,0 +1,198 @@
+:root {
+  color-scheme: light;
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  font-size: 15px;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background:
+    radial-gradient(
+      circle at top left,
+      rgba(44, 138, 125, 0.12),
+      transparent 32rem
+    ),
+    #f4f7f8;
+  color: #17241f;
+  margin: 0;
+  min-height: 100vh;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+.settings-shell {
+  display: grid;
+  gap: 22px;
+  margin: 0 auto;
+  max-width: 760px;
+  padding: 44px 22px;
+}
+
+.settings-header {
+  display: grid;
+  gap: 6px;
+}
+
+.eyebrow {
+  color: #69756d;
+  font-size: 13px;
+  margin: 0;
+}
+
+h1,
+h2 {
+  margin: 0;
+}
+
+h1 {
+  font-size: 34px;
+  line-height: 1.1;
+}
+
+h2 {
+  font-size: 16px;
+}
+
+.settings-form {
+  display: grid;
+  gap: 16px;
+}
+
+.settings-section,
+.form-footer {
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid rgba(36, 54, 49, 0.14);
+  border-radius: 18px;
+  box-shadow:
+    0 18px 46px rgba(23, 31, 38, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  display: grid;
+  gap: 14px;
+  padding: 18px;
+}
+
+label {
+  display: grid;
+  gap: 7px;
+}
+
+label span {
+  color: #40514c;
+  font-size: 13px;
+}
+
+input[type="text"],
+input[type="password"] {
+  background: #fbfcfd;
+  border: 1px solid rgba(36, 54, 49, 0.18);
+  border-radius: 12px;
+  color: #17241f;
+  min-height: 44px;
+  outline: none;
+  padding: 0 12px;
+  width: 100%;
+}
+
+input[type="text"]:focus,
+input[type="password"]:focus {
+  border-color: rgba(44, 138, 125, 0.68);
+  box-shadow: 0 0 0 3px rgba(44, 138, 125, 0.14);
+}
+
+.switch-row {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+}
+
+.switch-row input {
+  accent-color: #2c8a7d;
+  height: 18px;
+  width: 18px;
+}
+
+.shortcut-row {
+  align-items: center;
+  border-top: 1px solid rgba(36, 54, 49, 0.1);
+  display: flex;
+  justify-content: space-between;
+  min-height: 42px;
+}
+
+.shortcut-row:first-child {
+  border-top: 0;
+}
+
+.shortcut-row strong {
+  background: #eef3ef;
+  border: 1px solid rgba(36, 54, 49, 0.12);
+  border-radius: 999px;
+  color: #315f62;
+  font-size: 12px;
+  padding: 5px 9px;
+}
+
+.form-footer {
+  align-items: center;
+  display: flex;
+  justify-content: space-between;
+}
+
+.form-footer p {
+  color: #1d6d61;
+  margin: 0;
+  min-height: 20px;
+}
+
+button {
+  appearance: none;
+  background: #203d39;
+  border: 0;
+  border-radius: 12px;
+  box-shadow:
+    0 12px 24px rgba(28, 45, 42, 0.2),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
+  color: #ffffff;
+  cursor: pointer;
+  min-height: 42px;
+  padding: 0 16px;
+}
+
+button.secondary {
+  background: #ffffff;
+  border: 1px solid rgba(36, 54, 49, 0.16);
+  box-shadow: none;
+  color: #203d39;
+  justify-self: start;
+}
+
+button:hover,
+button:focus-visible {
+  outline: 2px solid rgba(44, 138, 125, 0.22);
+  outline-offset: 2px;
+}
+
+@media (max-width: 560px) {
+  .settings-shell {
+    padding: 28px 14px;
+  }
+
+  .form-footer {
+    align-items: stretch;
+    display: grid;
+    gap: 10px;
+  }
+}

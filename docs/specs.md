@@ -62,3 +62,17 @@ Send sends the article (with annotations) to any requested person through email 
 ### Shared libraries
 
 Not yet sure about this capability. Possibly desirable but not {v1}
+
+### More v1 notes
+
+- v1 human interface in the browser should be sophisticated and attractive. Go
+the extra distance on in-reader controls.
+- The in-reader control can have a double/split button for say/annotate. Note that
+given the context, skeumorphic control design seem reasonable
+- Use toasts with (gentle, elegant) text errors but also speak them aloud. If we don't say errors
+aloud users might think the error is an audio issue
+- Tools requiring an API key or some other config can appear as disabled, but we do not want
+them to disappear entirely from the page--instead clicking them should remind the user
+that we need more information to set up.
+- All UI should be relatively elegant (considering this is Zotero online instead of desktop)
+- Keyboard shortcuts for say and annotate should be configurable

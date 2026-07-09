@@ -24,11 +24,14 @@ tsconfig.tsbuildinfo
 
 # Scaffold
 .env
+.env.*
 .scaffold
 build
 logs
+coverage
 
 # Build artifacts
 dist
 *.xpi
 *.zip
+*.log

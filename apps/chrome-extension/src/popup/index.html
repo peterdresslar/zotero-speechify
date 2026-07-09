@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Zotero Speechify</title>
+    <script type="module" src="./popup.ts"></script>
+  </head>
+  <body>
+    <main class="popup-shell">
+      <header class="masthead">
+        <div>
+          <p class="eyebrow">Zotero Speechify</p>
+          <h1>Voice reader</h1>
+        </div>
+        <button class="icon-button" data-open-options title="Settings">
+          <span data-icon="settings"></span>
+        </button>
+      </header>
+
+      <section class="reader-actions" aria-label="Reader actions">
+        <button class="primary-action" data-action="say">
+          <span data-icon="volume"></span>
+          <span>Say</span>
+        </button>
+        <button class="primary-action annotate" data-action="annotate">
+          <span data-icon="annotate"></span>
+          <span>Annotate</span>
+        </button>
+      </section>
+
+      <section class="status-panel" aria-live="polite">
+        <div class="status-line" data-status-tone="quiet">
+          <span data-status-icon></span>
+          <p data-status>Open a Zotero reader page.</p>
+        </div>
+      </section>
+
+      <section class="setup-panel" aria-label="Setup">
+        <div class="setup-row" data-setup="speechify">
+          <span data-icon="key"></span>
+          <span>Speechify</span>
+          <strong data-state>Needed</strong>
+        </div>
+        <div class="setup-row" data-setup="zotero">
+          <span data-icon="key"></span>
+          <span>Zotero</span>
+          <strong data-state>Needed</strong>
+        </div>
+        <div class="setup-row" data-setup="agent">
+          <span data-icon="annotate"></span>
+          <span>Agent</span>
+          <strong data-state>Needed</strong>
+        </div>
+      </section>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,52 @@
+{
+  "manifest_version": 3,
+  "name": "Zotero Speechify",
+  "version": "0.0.1",
+  "description": "Unofficial voice controls for the Zotero Web reader.",
+  "action": {
+    "default_title": "Zotero Speechify",
+    "default_popup": "src/popup/index.html"
+  },
+  "options_page": "src/options/index.html",
+  "permissions": ["activeTab", "storage"],
+  "host_permissions": [
+    "https://www.zotero.org/*/items/*/reader*",
+    "https://www.zotero.org/*/items/*/attachment/*/reader*",
+    "https://www.zotero.org/*/collections/*/items/*/reader*",
+    "https://www.zotero.org/*/collections/*/items/*/attachment/*/reader*",
+    "https://api.zotero.org/*",
+    "https://api.speechify.ai/*"
+  ],
+  "background": {
+    "service_worker": "assets/service-worker.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://www.zotero.org/*/items/*/reader*",
+        "https://www.zotero.org/*/items/*/attachment/*/reader*",
+        "https://www.zotero.org/*/collections/*/items/*/reader*",
+        "https://www.zotero.org/*/collections/*/items/*/attachment/*/reader*"
+      ],
+      "js": ["assets/reader-control.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "commands": {
+    "say-selected-text": {
+      "suggested_key": {
+        "default": "Alt+Shift+S",
+        "mac": "MacCtrl+Shift+S"
+      },
+      "description": "Say selected Zotero text"
+    },
+    "voice-annotate": {
+      "suggested_key": {
+        "default": "Alt+Shift+A",
+        "mac": "MacCtrl+Shift+A"
+      },
+      "description": "Start voice annotation"
+    }
+  }
+}
