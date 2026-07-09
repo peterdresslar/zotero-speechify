@@ -31,9 +31,11 @@ The two features exercise different Speechify modalities and should be treated
 as independent verticals:
 
 - Say uses the text-to-speech API (streaming synthesis of selected text).
-- Annotate uses the Voice Agents API: a realtime LiveKit/WebRTC conversation
-  in the extension, with annotation persistence implemented as a client-side
-  tool call.
+  In v1, Say reads selected text only; if no text is selected, it should speak
+  a short error message rather than failing silently.
+- Annotate uses Speechify Agents: a realtime LiveKit/WebRTC conversation in
+  the extension, with annotation persistence implemented as a Speechify client
+  tool call handled by the extension.
 
 Do not force shared abstractions across the two before one clearly earns it.
 Shared code for API-key handling, settings, and Zotero context capture is
@@ -43,10 +45,10 @@ decides the features should communicate.
 The repository is a pnpm workspace monorepo:
 
 - `apps/chrome-extension/` — the current phase.
-- `apps/zotero-plugin/` — the future desktop port; stays empty until that
-  phase begins.
-- `packages/speechify-client/` — Say synthesis (via `@speechify/api`) and
-  agent session bootstrap.
+- `apps/zotero-plugin/` — the future desktop port; stays empty or absent until
+  that phase begins.
+- `packages/speechify-client/` — Say synthesis via `@speechify/api`, plus
+  direct REST helpers for Speechify Agents session bootstrap.
 - `packages/zotero-api/` — `api.zotero.org` access and annotation payload
   construction.
 - `packages/agent-config/` — the versioned agent instructions and tool
@@ -67,17 +69,28 @@ Reads and writes take different paths, on purpose:
   own API key. Annotations created there sync back to desktop Zotero. Never
   write by injecting into the reader DOM.
 
-Annotation placement fallback order: a text selection becomes a highlight
-annotation with the transcript as its comment; no usable selection or position
-becomes a child note on the item. Do not pin annotations to positions the user
-did not choose.
+Annotation placement fallback order for v1: a text selection becomes a
+highlight annotation with the transcript as its comment; if the reader is open
+with no selection, create a note annotation pinned to the current page; if no
+reader is open, speak a short error message and do not write to Zotero. A later
+desktop phase may add child-note fallback when no reader is open. Do not pin
+annotations to text spans or coordinates the user did not choose.
 
-The Annotate agent must capture the user's annotation verbatim and read back
-exactly what it heard. Helpful paraphrasing by the agent is a defect. Agent
-instructions and tool definitions are product surface: keep them versioned in
-this repository (created or updated via the API), not configured ad hoc in the
-Speechify dashboard, so any user can reproduce the connector with their own
+The Annotate agent must capture the user's annotation verbatim and, when
+read-back is enabled, read back exactly what it heard. Helpful paraphrasing by
+the agent is a defect. Annotation persistence should be exposed to the agent as
+a client tool such as `save_annotation`, registered by the extension on the
+realtime session and implemented through `packages/zotero-api`.
+
+Agent instructions, tool definitions, dynamic-variable contracts, and
+Speechify API version choices are product surface: keep them versioned in this
+repository and create or update them through the public API, not by one-off
+dashboard configuration, so any user can reproduce the connector with their own
 key.
+
+Speechify Agents is currently beta. Pin a dated `Speechify-Version` header for
+Agents REST calls, wire-test request and response shapes before upgrading that
+date, and check the Speechify changelog before adopting a new version.
 
 ## Tech preferences
 
@@ -95,6 +108,10 @@ key.
   currently TTS-only) for Say, and `livekit-client` for the agent voice
   session. The Zotero Web API is called with plain `fetch` — no client
   library
+- Do not use Speechify's hosted `<speechify-agent>` widget or hosted
+  `agents.mjs` runtime in the extension. MV3 code must be bundled. Use
+  `livekit-client` for the realtime connection and plain `fetch` for Agents
+  REST endpoints such as `POST /v1/agents/{agent_id}/sessions`.
 - Vitest, following the test layout of the official Speechify SDK
   (`SpeechifyInc/speechify-api-sdk-typescript`): `unit/` for pure logic,
   `wire/` for request/response-shape tests against an msw-backed mock server.
@@ -210,12 +227,24 @@ with a real microphone where relevant, and what the resulting annotation looked
 like (including confirming sync into desktop Zotero when the change touches
 persistence).
 
+Wire tests should assert raw request bodies, key headers, response parsing, and
+error handling for Speechify and Zotero API helpers. Unit tests should stay on
+pure selection/context/annotation-payload logic. Do not make tests depend on a
+real Speechify account, Zotero account, microphone, or reader page.
+
 ## Keys, Audio, And Privacy
 
 The extension holds two user secrets in extension storage: a Speechify API key
 and a Zotero Web API key. Neither may be committed, logged, or sent anywhere
 except its own service. Instruct users to create the Zotero key with the
 minimum permissions the workflow needs.
+
+Speechify's hosted-web-app guidance prefers a server-side proxy for
+API-key-bearing calls. This project is a user-owned local extension, so v1 may
+call Speechify directly with the user's own stored key; public docs and options
+copy must explain that tradeoff plainly. Do not add a local server, hosted
+proxy, or shared service unless the maintainer explicitly changes the security
+model.
 
 Only short-lived conversation tokens may be exposed beyond extension storage
 (for example, to the LiveKit session).
