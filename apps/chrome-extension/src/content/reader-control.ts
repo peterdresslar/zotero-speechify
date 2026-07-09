@@ -77,8 +77,7 @@ const icons = {
   stop: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="7" y="7" width="10" height="10" rx="1.5"/></svg>',
   restart:
     '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5.5v13"/><path d="m18 5.5-8 6.5 8 6.5Z"/></svg>',
-  loading:
-    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4a8 8 0 1 0 8 8"/></svg>'
+  lock: '<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="6.5" y="10.5" width="11" height="8.5" rx="2"/><path d="M9 10.5V8a3 3 0 0 1 6 0v2.5"/></svg>'
 } as const;
 
 function isRunReaderActionMessage(
@@ -256,9 +255,10 @@ function getVisiblePageLabel(documents: Document[]): string | undefined {
 }
 
 // Deployment flag: shows the captured selection in the toast while Say runs.
-// On by default; build with VITE_SELECTION_PREVIEW=false to hide in releases.
+// Off by default; build with VITE_SELECTION_PREVIEW=true to enable while
+// debugging selection capture.
 const SELECTION_PREVIEW_ENABLED =
-  import.meta.env.VITE_SELECTION_PREVIEW !== "false";
+  import.meta.env.VITE_SELECTION_PREVIEW === "true";
 
 interface SynthesizeSpeechResult {
   ok: boolean;
@@ -302,11 +302,31 @@ async function startSaying(selectedText: string): Promise<ReaderActionResult> {
   );
   setTransportLoading();
 
-  const result: SynthesizeSpeechResult = await chrome.runtime.sendMessage({
-    type: "SYNTHESIZE_SPEECH",
-    input: selectedText,
-    rate: preferredRate
-  });
+  let result: SynthesizeSpeechResult;
+
+  try {
+    result = await chrome.runtime.sendMessage({
+      type: "SYNTHESIZE_SPEECH",
+      input: selectedText,
+      rate: preferredRate
+    });
+  } catch {
+    voiceLoading = false;
+
+    if (!isExtensionAlive()) {
+      teardownReaderControl();
+      return {
+        ok: false,
+        status: "unavailable",
+        message: "The extension was updated — refresh this page."
+      };
+    }
+
+    applyPlaybackResult(undefined);
+    const message = "Sorry, I could not reach the extension to load the voice.";
+    showToast(message, "warning");
+    return { ok: false, status: "error", message };
+  }
 
   voiceLoading = false;
 
@@ -321,8 +341,8 @@ async function startSaying(selectedText: string): Promise<ReaderActionResult> {
   return { ok: true, status: "ready", message: "Reading selected text." };
 }
 
-// Shows the transport immediately with a spinner in the play slot and the
-// keys muted, so pressing Say gives feedback for the whole synthesis wait.
+// Shows the transport immediately in a locked state: the LED gauge runs its
+// charging sweep and every key wears a lock icon until the voice arrives.
 function setTransportLoading(): void {
   voiceLoading = true;
   stopPlaybackPolling();
@@ -335,12 +355,15 @@ function setTransportLoading(): void {
 
   const transport = requiredHtmlElement(shadow, "[data-transport]");
   transport.hidden = false;
-  transport.dataset.loading = "true";
+  transport.dataset.playback = "loading";
 
-  const playPauseButton = requiredButton(shadow, "[data-play-pause]");
-  playPauseButton.dataset.state = "loading";
-  playPauseButton.innerHTML = icons.loading;
-  playPauseButton.title = "Loading voice…";
+  for (const selector of ["[data-restart]", "[data-play-pause]", "[data-stop]"]) {
+    const button = requiredButton(shadow, selector);
+    button.innerHTML = icons.lock;
+    button.title = "Loading voice…";
+  }
+
+  requiredButton(shadow, "[data-play-pause]").dataset.state = "loading";
   requiredHtmlElement(shadow, "[data-speed]").textContent =
     formatRate(preferredRate);
 }
@@ -403,7 +426,6 @@ function applyPlaybackResult(result: AudioControlResult | undefined): void {
   }
 
   const transport = requiredHtmlElement(shadow, "[data-transport]");
-  delete transport.dataset.loading;
 
   if (
     result === undefined ||
@@ -411,16 +433,28 @@ function applyPlaybackResult(result: AudioControlResult | undefined): void {
     result.state === "expired"
   ) {
     transport.hidden = true;
+    delete transport.dataset.playback;
     stopPlaybackPolling();
     return;
   }
 
   transport.hidden = false;
+  transport.dataset.playback = result.state;
+
+  const restartButton = requiredButton(shadow, "[data-restart]");
+  restartButton.innerHTML = icons.restart;
+  restartButton.title = "Restart";
+
+  const stopButton = requiredButton(shadow, "[data-stop]");
+  stopButton.innerHTML = icons.stop;
+  stopButton.title = "Stop";
+
   const playPauseButton = requiredButton(shadow, "[data-play-pause]");
   playPauseButton.dataset.state = result.state;
   playPauseButton.innerHTML =
     result.state === "playing" ? icons.pause : icons.play;
   playPauseButton.title = result.state === "playing" ? "Pause" : "Play";
+
   requiredHtmlElement(shadow, "[data-speed]").textContent = formatRate(
     result.rate
   );
@@ -429,6 +463,10 @@ function applyPlaybackResult(result: AudioControlResult | undefined): void {
 
 function startPlaybackPolling(): void {
   playbackPollTimer ??= setInterval(() => {
+    if (!guardExtensionAlive()) {
+      return;
+    }
+
     void sendAudioControl("status").then((result) => {
       if (!voiceLoading) {
         applyPlaybackResult(result);
@@ -446,6 +484,38 @@ function stopPlaybackPolling(): void {
 
 function getControlShadow(): ShadowRoot | undefined {
   return document.getElementById(HOST_ID)?.shadowRoot ?? undefined;
+}
+
+// When the extension is reloaded or updated, content scripts already injected
+// into open tabs are orphaned: they keep running but every chrome.* call
+// throws "Extension context invalidated". Detect that and remove the control
+// so the page is left clean; the next tab refresh injects a live script.
+function isExtensionAlive(): boolean {
+  try {
+    return chrome.runtime.id !== undefined;
+  } catch {
+    return false;
+  }
+}
+
+function guardExtensionAlive(): boolean {
+  if (isExtensionAlive()) {
+    return true;
+  }
+
+  teardownReaderControl();
+  return false;
+}
+
+function teardownReaderControl(): void {
+  stopPlaybackPolling();
+
+  if (toastTimer !== undefined) {
+    clearTimeout(toastTimer);
+    toastTimer = undefined;
+  }
+
+  document.getElementById(HOST_ID)?.remove();
 }
 
 function formatRate(rate: number): string {
@@ -505,6 +575,10 @@ function installReaderControl(): void {
   void refreshSetupState(shadow);
 
   chrome.storage.onChanged.addListener((changes, areaName) => {
+    if (!guardExtensionAlive()) {
+      return;
+    }
+
     if (areaName === "local" && changes.zoteroSpeechifySettings !== undefined) {
       void refreshSetupState(shadow);
     }
@@ -517,34 +591,62 @@ function bindControl(shadow: ShadowRoot): void {
   const settingsButton = requiredButton(shadow, "[data-settings]");
 
   sayButton.addEventListener("click", () => {
+    if (!guardExtensionAlive()) {
+      return;
+    }
+
     void runReaderAction("say").then((result) => {
       setMode(shadow, result.status);
     });
   });
 
   annotateButton.addEventListener("click", () => {
+    if (!guardExtensionAlive()) {
+      return;
+    }
+
     void runReaderAction("annotate").then((result) => {
       setMode(shadow, result.status);
     });
   });
 
   settingsButton.addEventListener("click", () => {
+    if (!guardExtensionAlive()) {
+      return;
+    }
+
     void chrome.runtime.sendMessage({ type: "OPEN_OPTIONS" });
   });
 
   requiredButton(shadow, "[data-play-pause]").addEventListener("click", () => {
+    if (!guardExtensionAlive()) {
+      return;
+    }
+
     void togglePlayPause();
   });
 
   requiredButton(shadow, "[data-restart]").addEventListener("click", () => {
+    if (!guardExtensionAlive()) {
+      return;
+    }
+
     void restartPlayback();
   });
 
   requiredButton(shadow, "[data-stop]").addEventListener("click", () => {
+    if (!guardExtensionAlive()) {
+      return;
+    }
+
     void sendAudioControl("stop").then(applyPlaybackResult);
   });
 
   requiredButton(shadow, "[data-speed]").addEventListener("click", () => {
+    if (!guardExtensionAlive()) {
+      return;
+    }
+
     void cyclePlaybackRate();
   });
 }
@@ -867,20 +969,78 @@ function renderControl(): string {
         width: 15px;
       }
 
-      .transport[data-loading="true"] .transport-key,
-      .transport[data-loading="true"] .transport-speed {
-        color: #63727a;
+      .transport[data-playback="loading"] .transport-key,
+      .transport[data-playback="loading"] .transport-speed {
+        color: #7b878d;
         pointer-events: none;
       }
 
-      @keyframes zotero-speechify-spin {
-        to {
-          transform: rotate(360deg);
+      .gauge {
+        align-items: center;
+        background: linear-gradient(180deg, #202d26, #2d4034);
+        border: 1px solid rgba(16, 24, 20, 0.6);
+        border-radius: 9px;
+        box-shadow:
+          inset 0 2px 4px rgba(8, 14, 11, 0.65),
+          0 1px 0 rgba(255, 255, 255, 0.6);
+        display: inline-flex;
+        flex-direction: column-reverse;
+        gap: 2px;
+        height: 34px;
+        justify-content: center;
+        padding: 0 6px;
+      }
+
+      .led {
+        background: #34483d;
+        box-shadow: inset 0 1px 1px rgba(8, 14, 11, 0.55);
+        height: 3px;
+        transition:
+          background-color 160ms ease,
+          box-shadow 160ms ease;
+        width: 13px;
+      }
+
+      @keyframes zotero-speechify-led {
+        0%,
+        100% {
+          background: #34483d;
+          box-shadow: inset 0 1px 1px rgba(8, 14, 11, 0.55);
+        }
+        30%,
+        70% {
+          background: #57df82;
+          box-shadow:
+            0 0 6px rgba(87, 223, 130, 0.85),
+            inset 0 0 2px rgba(255, 255, 255, 0.5);
         }
       }
 
-      .transport-key[data-state="loading"] svg {
-        animation: zotero-speechify-spin 900ms linear infinite;
+      .transport[data-playback="loading"] .led {
+        animation: zotero-speechify-led 1100ms linear infinite;
+      }
+
+      .transport[data-playback="loading"] .led:nth-child(2) {
+        animation-delay: 130ms;
+      }
+
+      .transport[data-playback="loading"] .led:nth-child(3) {
+        animation-delay: 260ms;
+      }
+
+      .transport[data-playback="loading"] .led:nth-child(4) {
+        animation-delay: 390ms;
+      }
+
+      .transport[data-playback="loading"] .led:nth-child(5) {
+        animation-delay: 520ms;
+      }
+
+      .transport[data-playback="playing"] .led {
+        background: #57df82;
+        box-shadow:
+          0 0 6px rgba(87, 223, 130, 0.85),
+          inset 0 0 2px rgba(255, 255, 255, 0.5);
       }
 
       .transport-speed {
@@ -997,6 +1157,13 @@ function renderControl(): string {
         aria-label="Playback controls"
         hidden
       >
+        <div class="gauge" aria-hidden="true">
+          <span class="led"></span>
+          <span class="led"></span>
+          <span class="led"></span>
+          <span class="led"></span>
+          <span class="led"></span>
+        </div>
         <button class="transport-key" data-restart title="Restart">
           ${icons.restart}
         </button>
