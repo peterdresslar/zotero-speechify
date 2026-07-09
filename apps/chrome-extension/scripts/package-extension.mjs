@@ -67,6 +67,8 @@ for (const entry of manifest.content_scripts ?? []) {
 // --- Zip ----------------------------------------------------------------
 // Source maps stay in the local dist/ for debugging but are excluded from
 // the release artifact (they roughly quadruple it and ship no user value).
+// The README screenshot also lives under public/ so GitHub can render it,
+// but it is documentation, not extension runtime data.
 // Requires the Info-ZIP `zip` binary (preinstalled on macOS/Linux; on
 // Windows, run under WSL or install Info-ZIP).
 
@@ -77,7 +79,11 @@ mkdirSync(buildDir, { recursive: true });
 rmSync(zipPath, { force: true });
 
 try {
-  execFileSync("zip", ["-qr", zipPath, ".", "-x", "*.map"], { cwd: distDir });
+  execFileSync(
+    "zip",
+    ["-qr", zipPath, ".", "-x", "*.map", "zotero-speechify-1.png"],
+    { cwd: distDir }
+  );
 } catch (error) {
   if (error.code === "ENOENT") {
     fail(
