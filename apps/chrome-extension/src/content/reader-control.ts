@@ -247,9 +247,95 @@ function getVisiblePageLabel(documents: Document[]): string | undefined {
   return undefined;
 }
 
-// TEMPORARY: previews the captured selection in the toast so frame-aware
-// capture can be verified until Speechify playback is wired in. Remove when
-// Say actually synthesizes audio.
+// Deployment flag: shows the captured selection in the toast while Say runs.
+// On by default; build with VITE_SELECTION_PREVIEW=false to hide in releases.
+const SELECTION_PREVIEW_ENABLED =
+  import.meta.env.VITE_SELECTION_PREVIEW !== "false";
+
+interface SynthesizeSpeechResult {
+  ok: boolean;
+  audioDataBase64?: string;
+  message: string;
+}
+
+let audioContext: AudioContext | undefined;
+let currentAudioSource: AudioBufferSourceNode | undefined;
+
+async function startSaying(selectedText: string): Promise<ReaderActionResult> {
+  showToast(
+    SELECTION_PREVIEW_ENABLED
+      ? formatSelectionPreview(selectedText)
+      : "Fetching audio…",
+    "ready"
+  );
+
+  const result: SynthesizeSpeechResult = await chrome.runtime.sendMessage({
+    type: "SYNTHESIZE_SPEECH",
+    input: selectedText
+  });
+
+  if (!result.ok || result.audioDataBase64 === undefined) {
+    showToast(result.message, "warning");
+    speakStatus(result.message);
+    return { ok: false, status: "error", message: result.message };
+  }
+
+  try {
+    await playAudioData(result.audioDataBase64);
+  } catch {
+    const message = "Sorry, I fetched the audio but could not play it.";
+    showToast(message, "warning");
+    speakStatus(message);
+    return { ok: false, status: "error", message };
+  }
+
+  return { ok: true, status: "ready", message: "Reading selected text." };
+}
+
+// Playback goes through Web Audio because the page CSP on zotero.org blocks
+// data:/blob: media loads; decodeAudioData works on raw bytes and never
+// performs a resource load, so the page CSP does not apply.
+async function playAudioData(audioDataBase64: string): Promise<void> {
+  audioContext ??= new AudioContext();
+
+  if (audioContext.state === "suspended") {
+    await audioContext.resume();
+  }
+
+  stopCurrentAudio();
+
+  const audioBuffer = await audioContext.decodeAudioData(
+    decodeBase64ToArrayBuffer(audioDataBase64)
+  );
+  const source = audioContext.createBufferSource();
+  source.buffer = audioBuffer;
+  source.connect(audioContext.destination);
+  source.start();
+  currentAudioSource = source;
+}
+
+function stopCurrentAudio(): void {
+  try {
+    currentAudioSource?.stop();
+  } catch {
+    // Already stopped or finished; nothing to do.
+  }
+
+  currentAudioSource = undefined;
+}
+
+function decodeBase64ToArrayBuffer(base64: string): ArrayBuffer {
+  const binary = atob(base64);
+  const buffer = new ArrayBuffer(binary.length);
+  const bytes = new Uint8Array(buffer);
+
+  for (let index = 0; index < binary.length; index += 1) {
+    bytes[index] = binary.charCodeAt(index);
+  }
+
+  return buffer;
+}
+
 function formatSelectionPreview(selectedText: string): string {
   const preview =
     selectedText.length > 100
@@ -364,7 +450,7 @@ async function runReaderAction(
       );
     }
 
-    return showReady(formatSelectionPreview(context.selectedText));
+    return startSaying(context.selectedText);
   }
 
   const target = chooseAnnotationTarget(context);

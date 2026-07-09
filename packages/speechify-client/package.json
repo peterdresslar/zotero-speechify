@@ -8,6 +8,7 @@
   },
   "types": "./src/index.ts",
   "dependencies": {
+    "@speechify/api": "^2.0.0",
     "@zotero-speechify/agent-config": "workspace:*"
   },
   "scripts": {

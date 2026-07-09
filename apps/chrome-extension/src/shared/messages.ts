@@ -30,8 +30,22 @@ export interface OpenOptionsMessage {
   type: "OPEN_OPTIONS";
 }
 
+export interface SynthesizeSpeechMessage {
+  type: "SYNTHESIZE_SPEECH";
+  input: string;
+}
+
+export interface SynthesizeSpeechResult {
+  ok: boolean;
+  audioDataBase64?: string;
+  message: string;
+}
+
 export type ExtensionMessage =
-  RunActiveReaderActionMessage | RunReaderActionMessage | OpenOptionsMessage;
+  | RunActiveReaderActionMessage
+  | RunReaderActionMessage
+  | OpenOptionsMessage
+  | SynthesizeSpeechMessage;
 
 export const NOT_READER_RESULT: ReaderActionResult = {
   ok: false,
@@ -56,6 +70,17 @@ export function isRunReaderActionMessage(
     isObject(message) &&
     message.type === "RUN_READER_ACTION" &&
     isReaderAction(message.action)
+  );
+}
+
+export function isSynthesizeSpeechMessage(
+  message: unknown
+): message is SynthesizeSpeechMessage {
+  return (
+    isObject(message) &&
+    message.type === "SYNTHESIZE_SPEECH" &&
+    typeof message.input === "string" &&
+    message.input.length > 0
   );
 }
 

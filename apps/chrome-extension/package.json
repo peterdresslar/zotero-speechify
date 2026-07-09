@@ -4,7 +4,6 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "@speechify/api": "^2.0.0",
     "@zotero-speechify/agent-config": "workspace:*",
     "@zotero-speechify/speechify-client": "workspace:*",
     "@zotero-speechify/zotero-api": "workspace:*",

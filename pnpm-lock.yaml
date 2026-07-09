@@ -64,6 +64,9 @@ importers:
 
   packages/speechify-client:
     dependencies:
+      '@speechify/api':
+        specifier: ^2.0.0
+        version: 2.0.0
       '@zotero-speechify/agent-config':
         specifier: workspace:*
         version: link:../agent-config
