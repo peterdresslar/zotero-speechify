@@ -37,6 +37,8 @@ if (manifest.version !== pkg.version) {
 const referencedFiles = [
   manifest.background?.service_worker,
   manifest.action?.default_popup,
+  ...iconPaths(manifest.icons),
+  ...iconPaths(manifest.action?.default_icon),
   manifest.options_page,
   ...(manifest.content_scripts ?? []).flatMap((entry) => entry.js ?? [])
 ].filter((file) => typeof file === "string");
@@ -45,6 +47,18 @@ for (const file of referencedFiles) {
   if (!existsSync(join(distDir, file))) {
     fail(`manifest references missing file: ${file}`);
   }
+}
+
+function iconPaths(value) {
+  if (typeof value === "string") {
+    return [value];
+  }
+
+  if (value !== null && typeof value === "object") {
+    return Object.values(value).filter((file) => typeof file === "string");
+  }
+
+  return [];
 }
 
 // --- Content-script constraint -----------------------------------------
@@ -67,8 +81,8 @@ for (const entry of manifest.content_scripts ?? []) {
 // --- Zip ----------------------------------------------------------------
 // Source maps stay in the local dist/ for debugging but are excluded from
 // the release artifact (they roughly quadruple it and ship no user value).
-// The README screenshot also lives under public/ so GitHub can render it,
-// but it is documentation, not extension runtime data.
+// Documentation, Web Store imagery, and SVG icon sources live outside
+// public/, so the packaged extension contains only runtime assets.
 // Requires the Info-ZIP `zip` binary (preinstalled on macOS/Linux; on
 // Windows, run under WSL or install Info-ZIP).
 
@@ -79,11 +93,7 @@ mkdirSync(buildDir, { recursive: true });
 rmSync(zipPath, { force: true });
 
 try {
-  execFileSync(
-    "zip",
-    ["-qr", zipPath, ".", "-x", "*.map", "zotero-speechify-1.png"],
-    { cwd: distDir }
-  );
+  execFileSync("zip", ["-qr", zipPath, ".", "-x", "*.map"], { cwd: distDir });
 } catch (error) {
   if (error.code === "ENOENT") {
     fail(

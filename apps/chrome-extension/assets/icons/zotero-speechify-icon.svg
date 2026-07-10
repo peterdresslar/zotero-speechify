@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title desc">
+  <title id="title">Zotero Speechify icon</title>
+  <desc id="desc">A red letter Z with sound waves radiating to the right.</desc>
+  <path
+    d="M 20 30 H 60 L 20 98 H 60"
+    fill="none"
+    stroke="#CC2936"
+    stroke-width="16"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <path
+    d="M 76 52 Q 92 64 76 76"
+    fill="none"
+    stroke="#333333"
+    stroke-width="10"
+    stroke-linecap="round"
+  />
+  <path
+    d="M 92 36 Q 116 64 92 92"
+    fill="none"
+    stroke="#333333"
+    stroke-width="10"
+    stroke-linecap="round"
+  />
+</svg>

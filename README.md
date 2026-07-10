@@ -8,7 +8,7 @@ that are saved to the user's Zotero library.
 This project is independent. It is not affiliated with, endorsed by, or
 supported by Speechify or Zotero.
 
-![Zotero Web reader with selected text and the Zotero Speechify Say and Annotate controls visible.](apps/chrome-extension/public/zotero-speechify-1.png)
+![Zotero Web reader with selected text and the Zotero Speechify Say and Annotate controls visible.](docs/assets/zotero-speechify-1.png)
 
 ## Current Scope
 
@@ -51,10 +51,11 @@ The Zotero desktop app is not required. The extension works against the
 Zotero **Web** reader at `zotero.org`; desktop receives voice annotations via
 normal Zotero sync.
 
-There is no Chrome Web Store listing yet.
+For public installation, use the Chrome Web Store listing. To install from a
+tagged GitHub release or a source checkout:
 
-1. For a tagged release, download the release zip. From a checkout, build the
-   same installable artifact with
+1. Download the release zip. From a checkout, build the same installable
+   artifact with
    `pnpm --filter @zotero-speechify/chrome-extension run package`.
 2. Unzip it; open `chrome://extensions`, enable Developer mode, choose
    **Load unpacked**, and select the unzipped folder.
@@ -140,10 +141,15 @@ untracked. The repository does not contain build artifacts. The installable
 zip is produced only by the `package` script, which also verifies manifest
 consistency and the content script's no-imports constraint. Source maps stay
 in `dist/` for local debugging but are excluded from the packaged zip. The
-README screenshot is also excluded from the packaged extension. Tagged releases
-should attach the generated zip to a GitHub Release. Before tagging, run the
-[manual test checklist](docs/manual-test-checklist.md) against the packaged
-build.
+README image and Chrome Web Store imagery live under `docs/`, outside the
+extension runtime tree. Tagged releases should attach the generated zip to a
+GitHub Release.
+Before tagging, run the [manual test checklist](docs/manual-test-checklist.md)
+against the packaged build.
+
+Chrome Web Store listing assets are tracked in
+[docs/web-store](docs/web-store/README.md). They are publication assets, not
+extension files.
 
 Contributor ground rules live in [AGENTS.md](AGENTS.md). Issues and PRs are
 welcome; please keep library details out of pasted logs.
